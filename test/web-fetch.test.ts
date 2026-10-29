@@ -17,6 +17,7 @@ test("web_fetch converts HTML into readable text", async (t) => {
   t.mock.method(globalThis, "fetch", async (url: string | URL | Request, options?: RequestInit) => {
     assert.equal(String(url), "https://example.com/article");
     assert.ok(options?.signal instanceof AbortSignal);
+    assert.equal(new Headers(options?.headers).get("user-agent"), "coding-agent-lab/1.0");
     return new Response(
       '<h1>Hello &amp; &#x4E2D;</h1><style>hide this</style><script>run this</script><p>Visible &#39;text&#39;</p>',
       { headers: { "Content-Type": "text/html; charset=utf-8" } }

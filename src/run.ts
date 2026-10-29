@@ -12,7 +12,7 @@ try {
     catch (error: any) { if (error.code !== "ENOENT") throw error; }
     const prompt = process.argv.slice(2).join(" ").trim();
     if (prompt === "--help" || prompt === "-h") {
-        console.log('用法: npm start -- "你的问题" 或 mini-claude [prompt]');
+        console.log('用法: npm start -- "你的问题" 或 coding-agent-lab [prompt]');
         console.log("有 prompt 直接聊天；无 prompt 进入 REPL。支持 /chat、/clear、/compact，空输入按 ← 切换会话。");
     } else if (!prompt && (!process.stdin.isTTY || !process.stdout.isTTY)) {
         throw new Error("REPL 需要交互式终端；非交互环境请提供 prompt。");

@@ -1,5 +1,5 @@
 {
-  "name": "mini-claude-code",
+  "name": "coding-agent-lab",
   "version": "0.1.0",
   "private": true,
   "description": "从 practice 独立出来的 TypeScript coding agent 练习",
@@ -9,7 +9,7 @@
     "node": ">=24"
   },
   "bin": {
-    "mini-claude": "./dist/run.js"
+    "coding-agent-lab": "./dist/run.js"
   },
   "scripts": {
     "start": "node src/run.ts",

@@ -407,7 +407,7 @@ async function webFetch(input: { url: string }, signal?: AbortSignal): Promise<s
 
     try {
         const response = await fetch(url, {
-            headers: { "User-Agent": "mini-claude-practice/1.0" },
+            headers: { "User-Agent": "coding-agent-lab/1.0" },
             signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS),
         });
         if (!response.ok) {

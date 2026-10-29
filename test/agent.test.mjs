@@ -58,7 +58,7 @@ test("Agent keeps messages and file-read state across chat turns", async (t) => 
     const firstMessage = request.messages[0].content;
     assert.match(request.system, /coding assistant/);
     assert.match(request.system, /# Environment/);
-    assert.doesNotMatch(firstMessage, /You are Mini Claude Code/);
+    assert.doesNotMatch(firstMessage, /You are Coding Agent Lab/);
     assert.equal(firstMessage.split("fixture-project-instruction").length - 1, 1);
     assert.doesNotMatch(firstMessage, /changed-project-instruction/);
   }

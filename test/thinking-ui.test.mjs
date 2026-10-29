@@ -91,6 +91,7 @@ test("TUI shows streaming thinking separately and does not persist it", async t 
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   const frame = app.lastFrame();
+  assert.match(frame, /Coding Agent Lab/);
   assert.match(frame, /First, consider the answer\./);
   assert.match(frame, /\u001b\[3m/);
   assert.match(frame, /\u001b\[90m/);

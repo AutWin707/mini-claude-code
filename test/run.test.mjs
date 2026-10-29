@@ -50,6 +50,7 @@ test("runner shows help without credentials or a model request", async () => {
   for (const args of [["--help"], ["-h"]]) {
     const { stdout } = await exec(process.execPath, [entry, ...args], { env: cleanEnv });
     assert.match(stdout, /用法: npm start/);
+    assert.match(stdout, /coding-agent-lab \[prompt\]/);
   }
 });
 

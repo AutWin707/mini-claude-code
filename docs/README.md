@@ -1,4 +1,4 @@
-# Mini Claude Code 复习目录
+# Coding Agent Lab 复习目录
 
 这是一份围绕本仓库 **TypeScript 实现**写的学习笔记。目录编号参考 [Claude Code from Scratch](https://github.com/Windy3f3f3f3f/claude-code-from-scratch) 的中文教程，内容重新按当前 `src/` 的代码解释：哪些已经跑通、请求和状态怎么流转、为什么这么设计、哪些地方还只是下一步。
 

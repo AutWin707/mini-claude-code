@@ -13,7 +13,7 @@ function fixture(t: TestContext): string {
 
 test("static prompt describes the coding assistant", () => {
   const prompt = buildStaticSystemPrompt();
-  assert.match(prompt, /coding assistant/);
+  assert.match(prompt, /You are Coding Agent Lab, a coding assistant/);
   assert.match(prompt, /Read existing files before modifying/);
   assert.equal(buildStaticSystemPrompt(), prompt);
 });

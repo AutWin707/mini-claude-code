@@ -11,15 +11,15 @@
 当前 Agent 能真实执行 Shell 和修改文件。**不要在生产仓库、包含敏感文件的目录里做写入实验**。建议准备一个临时目录，里面只放练习文件：
 
 ```bash
-mkdir -p /tmp/mini-claude-demo
-cd /tmp/mini-claude-demo
+mkdir -p /tmp/coding-agent-lab-demo
+cd /tmp/coding-agent-lab-demo
 printf 'hello agent\n' > greeting.txt
 ```
 
 接下来通过本项目 `run.sh` 的**绝对路径**运行交互界面，这样 `process.cwd()` 是临时目录；配置仍从本项目加载。请将命令中的占位路径替换成本机实际路径：
 
 ```bash
-/path/to/mini-claude-code/run.sh
+/path/to/coding-agent-lab/run.sh
 ```
 
 确保模型服务兼容 Anthropic Messages API、`ANTHROPIC_MODEL` 和 API key 已配置；不要把真实密钥贴到终端截图、会话示例或测试报告里。需要验证 grep 时还要安装 `rg`。

@@ -1,6 +1,6 @@
-# Mini Claude Code
+# Coding Agent Lab
 
-从 `claude-code-from-scratch/practice` 整理出来的独立 TypeScript 练习项目。只迁入已经写好的部分，不依赖原仓库，不搬教程成品或空模块。原项目保持不动。
+从 `claude-code-from-scratch/practice` 整理出来的独立 TypeScript 练习项目。只迁入已经写好的部分，不依赖原仓库，不搬教程成品或空模块。原项目保持不动。本项目与 Anthropic 无官方关联。
 
 按教程目录整理的 TypeScript 复习文档见 [docs/README.md](docs/README.md)，内容以本项目当前实现为准。
 
@@ -22,10 +22,10 @@ npm start -- "看看这个项目的目录结构"
 `npm start -- "问题"` 运行一次内存对话后退出；无参数时在交互式终端启动 TUI；`--help` 展示帮助，不调用模型。要在别的项目目录运行，使用本项目 `run.sh` 的绝对路径；它不会改变当前工作目录：
 
 ```bash
-/path/to/mini-claude-code/run.sh "看看当前项目"
+/path/to/coding-agent-lab/run.sh "看看当前项目"
 ```
 
-同一个 `Agent` 实例可以多次调用 `chat()`，保留历史消息和文件读取状态。TUI 会把会话事件写入 `~/.mini-claude/sessions/`，可在输入框为空时按左箭头选择并恢复会话；单次 prompt 模式不会创建 JSONL 会话。
+同一个 `Agent` 实例可以多次调用 `chat()`，保留历史消息和文件读取状态。TUI 会把会话事件写入 `~/.mini-claude/sessions/`（为兼容旧数据保留原目录），可在输入框为空时按左箭头选择并恢复会话；单次 prompt 模式不会创建 JSONL 会话。
 
 ## 代码地图
 

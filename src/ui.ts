@@ -85,7 +85,7 @@ export function ReplApp({ controller, onClear = () => {} }: { controller: ReplCo
             `${start + index === selected ? ">" : " "} ${safeText(session.state.title ?? "新会话")} · ${session.header.id.slice(0, 8)} · ${safeText(session.header.cwd)}`))
         : lines.map((line, index) => h(Text, { key: index, wrap: "truncate" }, line || " "));
     return h(Box, { flexDirection: "column", width: size.columns },
-        h(Text, { bold: true, wrap: "truncate" }, `Mini Claude Code · ${safeText(view.title)} · ${view.id.slice(0, 8)}`),
+        h(Text, { bold: true, wrap: "truncate" }, `Coding Agent Lab · ${safeText(view.title)} · ${view.id.slice(0, 8)}`),
         h(Text, { dimColor: true, wrap: "truncate" }, `${safeText(view.model)} · ${safeText(view.cwd)}`),
         h(Box, { flexDirection: "column", height, overflow: "hidden" },
             ...body, sessions?.length === 0 ? h(Text, null, "暂无会话") : null),

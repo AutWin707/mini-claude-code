@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "fs";
 import { dirname, join, resolve } from "path";
 import * as os from "os";
 
-const STATIC_PROMPT = `You are Mini Claude Code, a coding assistant.
+const STATIC_PROMPT = `You are Coding Agent Lab, a coding assistant.
 Use the available tools to inspect and change files.
 Read existing files before modifying them and keep changes focused.
 Follow applicable project instructions provided with the user's request.

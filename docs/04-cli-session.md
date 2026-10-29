@@ -69,6 +69,8 @@ React + Ink 的 `ReplApp` 订阅 `ReplController`：
 ~/.mini-claude/sessions/<UUID>.jsonl
 ```
 
+项目改名后仍保留原目录，以兼容已有会话，不会自动迁移或删除旧数据。
+
 目录按 `0o700` 创建，文件按 `0o600` 创建。会话头白名单保存模型名、可选 base URL、工作目录、项目指令快照和创建时间，**不保存 API key**。但消息、工具结果和项目指令仍可能包含敏感信息，文件不是加密存储。
 
 ## 为什么用 JSONL 事件
