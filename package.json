@@ -1,0 +1,36 @@
+{
+  "name": "mini-claude-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "从 practice 独立出来的 TypeScript coding agent 练习",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "mini-claude": "./dist/run.js"
+  },
+  "scripts": {
+    "start": "node src/run.ts",
+    "prepare": "npm run build",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts test/*.test.mjs",
+    "check": "npm run typecheck && npm run build && npm test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "glob": "^11.0.1",
+    "ink": "^6.8.0",
+    "marked": "^18.1.2",
+    "marked-terminal": "^7.3.1",
+    "react": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0",
+    "typescript": "^5.8.3"
+  }
+}
