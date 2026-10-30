@@ -32,6 +32,9 @@ assistant: 文件内容是……
 | `state.messageCount` | 累计 message 事件数量，用于压缩检查点，不等于当前数组长度 |
 | `readFileState` | 路径 → 读取时的 mtime，给修改保护使用 |
 | `activatedTools` | 本 Agent 已激活的延迟工具 |
+| `permissionMode` / `permissionRules` | 当前权限模式及创建时读取的规则快照 |
+| `confirmedActions` | 当前 Agent 已确认的操作描述，不写入会话 |
+| `lastApiCallTime` | 最近一次成功聊天请求的时间，用于空闲微清理；不写入会话 |
 | `onEvent` | 可选的持久化回调 |
 | `onOutput` | 可选的界面输出回调 |
 | `busy` | 防止一个 Agent 同时运行两个互斥操作 |
@@ -54,11 +57,11 @@ while true:
     过滤 thinking，record(assistant message)
     找 tool_use
     没有 tool_use → record(turn_end)，返回
-    执行/复用工具，收集 tool_result
+    检查权限 → 执行/复用工具或返回拒绝，收集 tool_result
     record(user message containing all results)
 ```
 
-这是为了复习而省略细节的流程，不是可直接复制的完整实现。源码还要处理取消、提前执行、截断、工具状态、错误和界面输出。
+这是为了复习而省略细节的流程，不是可直接复制的完整实现。源码还要处理权限、取消、提前执行、截断、工具状态、错误和界面输出。权限流程见[第 6 章](06-permissions.md)。
 
 第一次用户消息还可能被 `withInstructions()` 包上一段 `<project-instructions>`。这些指令从当前项目和祖先目录读取，细节见[第 3 章](03-system-prompt.md)。
 
@@ -91,7 +94,7 @@ async chat(userMessage: string, signal?: AbortSignal): Promise<void> {
         return;
       }
 
-      // 按顺序处理 calls，优先复用 pending 中已经启动的安全工具。
+      // 按顺序检查权限并处理 calls；允许时可复用 pending 中已经启动的安全工具。
       // 收集 tool_result 后，再记录为一条 user 消息。
     }
   });

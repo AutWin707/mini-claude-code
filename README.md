@@ -27,12 +27,15 @@ npm start -- "看看这个项目的目录结构"
 
 同一个 `Agent` 实例可以多次调用 `chat()`，保留历史消息和文件读取状态。TUI 会把会话事件写入 `~/.mini-claude/sessions/`（为兼容旧数据保留原目录），可在输入框为空时按左箭头选择并恢复会话；单次 prompt 模式不会创建 JSONL 会话。
 
+在 TUI 输入 `/permission` 查看权限模式，输入 `/permission dontAsk` 等命令切换模式；需要确认的操作通过 `y` / `n` 回答。具体模式和限制见 [第 6 章](docs/06-permissions.md)。
+
 ## 代码地图
 
 ```text
 src/
   agent.ts       模型调用 → 工具执行 → 工具结果 → 再次调用模型
   tools.ts       工具定义、分发与执行
+  permissions.ts 权限规则、模式与危险操作检测
   prompt.ts      静态/动态提示词、项目指令加载
   run.ts         单次执行与交互式入口
   repl.ts        交互控制器与会话切换
@@ -50,12 +53,14 @@ docs/            按教程目录整理的实现与复习文档
 - Agent Loop、多轮消息与工具调用配对。
 - 读写/编辑文件、glob 查找、ripgrep 搜索、Shell、网页抓取。
 - 修改前必须读取文件，检查 mtime 防止覆盖外部变更。
-- 工具输出截断、延迟工具搜索与激活。
+- 工具执行前的 allow/deny 规则、危险操作确认与会话内授权。
+- 工具输出截断、空闲后的旧工具结果清理、手动和可配置自动压缩。
+- 延迟工具搜索与激活。
 - system prompt、运行环境、父目录项目指令、规则文件及 `@路径` 引用。
 
 迁移时恢复了被注释的 system prompt，移除了写死的测试提问和完整响应调试输出，模型改为环境配置，并修正了文件工具使用 Windows 专用 `dirname` 的问题。
 
-**注意：这是学习用 agent，不是安全沙箱。** 工具可以直接执行 Shell、写文件和访问网络，尚无权限确认机制；提示词中的“先询问”不是强制保护。请在可信的临时项目中运行。Agent 使用各自的延迟工具激活集合。
+**注意：这是学习用 agent，不是安全沙箱。** 权限检查使用简单规则和正则，并不能识别所有危险 Shell；默认也会放行部分写入、命令和网络请求。请在可信的临时项目中运行，详见 [权限与安全](docs/06-permissions.md)。
 
 ## 验证
 
@@ -70,6 +75,6 @@ npm test          # 使用 mock，不需要 API key，也不访问真实模型
 
 ## 下一步
 
-React + Ink CLI 与 JSONL 会话已实现，`docs/04-cli-session-plan.md` 保留为早期方案记录。权限审批、记忆、技能、多 Agent、MCP 和自治等功能尚未实现；已有实现从 [复习目录](docs/README.md) 开始阅读。
+React + Ink CLI、JSONL 会话与简化版权限审批已实现，`docs/04-cli-session-plan.md` 保留为早期方案记录。Plan Mode、记忆、技能、多 Agent、MCP 和自治等功能尚未实现；已有实现从 [复习目录](docs/README.md) 开始阅读。
 
 保留原项目的 MIT 许可，见 `LICENSE`。

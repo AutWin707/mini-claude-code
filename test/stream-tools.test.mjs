@@ -122,7 +122,7 @@ test("a prior write prevents later reads from starting early", async t => {
   const emitted = Promise.withResolvers();
   t.after(() => pause.resolve());
   const { client, requests } = clientFor(calls, pause, emitted);
-  const agent = new Agent({ config: { model: "test" }, client, instructions: "", onOutput() {} });
+  const agent = new Agent({ config: { model: "test" }, client, instructions: "", onOutput() {}, confirmPermission: async () => true });
   const started = [];
   const runTool = agent.runTool.bind(agent);
   agent.runTool = (call, ...args) => { started.push(call.name); return runTool(call, ...args); };

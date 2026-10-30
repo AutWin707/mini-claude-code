@@ -45,9 +45,12 @@ npm run check      # 上述三个步骤顺序执行
 | `test/grep.test.ts` | ripgrep 参数、过滤、数量上限、缺少可执行文件 |
 | `test/web-fetch.test.ts` | URL、内容类型、解码、响应截断、超时 |
 | `test/truncate-result.test.ts` | 工具结果截断边界 |
+| `test/microcompact.test.mjs` | 空闲阈值、旧结果清理、会话重放和失败保护 |
+| `test/autocompact.test.mjs` | 自动压缩阈值、轮次边界、失败保护和 `/maxcontext` |
 | `test/transcript.test.ts` | Markdown、终端控制字符、显示条目 |
 | `test/thinking.test.mjs`、`test/thinking-ui.test.mjs` | thinking 参数、流式展示、历史过滤 |
 | `test/stream-tools.test.mjs` | 提前执行、去重、顺序屏障、取消、SDK SSE |
+| `test/permissions.test.mjs` | 规则和模式、会话确认、提前执行拦截、Ink、非交互模式 |
 | `test/agent.test.mjs`、`test/session.test.mjs` | Agent 与会话场景；部分旧 mock 待更新 |
 | `test/run.test.mjs` | CLI 子进程及模拟 API；部分旧响应待更新 |
 
@@ -92,6 +95,30 @@ node --test test/stream-tools.test.mjs test/thinking-ui.test.mjs test/thinking.t
 流式工具测试检查四种安全工具在完整响应结束前启动、重复事件不触发重复执行、写操作形成顺序屏障、取消/重试时临时读取状态不被提交；还启动本地模拟服务，用真正的 Anthropic SDK 验证 `content_block_stop`。
 
 thinking 测试覆盖增量、完整 block、最终响应兜底，以及显示内容不写入普通会话历史。测试不代表所有兼容服务都支持相同 thinking 协议。
+
+### 5. 权限规则与确认
+
+```bash
+node --test test/permissions.test.mjs test/stream-tools.test.mjs
+```
+
+覆盖 deny 优先、模式切换、会话内确认、流式提前读取拦截、Ink 确认与取消、切换项目时重新加载规则，以及单次 prompt 在非交互环境下拒绝需要确认的操作。权限规则和模式的具体边界见[第 6 章](06-permissions.md)。
+
+### 6. 空闲后的工具结果清理
+
+```bash
+node --test test/microcompact.test.mjs
+```
+
+测试覆盖 5 分钟触发边界、最近 3 个结果保留、工具 ID 不变、JSONL 重放和落盘失败保护。清理规则见[第 7 章](07-context.md)。
+
+### 7. 自动压缩
+
+```bash
+node --test test/autocompact.test.mjs
+```
+
+测试覆盖 usage 锚点和缓存 token、估算触发、用户输入保留、工具配对边界、失败与取消保护，以及 `/maxcontext` 校验和会话切换。
 
 ## 如何读一个流式工具测试
 

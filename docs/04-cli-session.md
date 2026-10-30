@@ -24,7 +24,7 @@ npm start -- "解释项目结构"
 npm start
 ```
 
-入口默认从项目安装目录加载 `.env`；`MINI_CLAUDE_ENV_FILE` 可以指向其他配置文件。已有的进程环境变量优先。模型名从 `ANTHROPIC_MODEL` 获取；API 地址优先 `ANTHROPIC_BASE_URL`，再考虑旧的 `ANTHROPIC_API_URL`。当前没有教程中的 `--resume`、`--yolo`、`--plan` 等参数。
+入口默认从项目安装目录加载 `.env`；`MINI_CLAUDE_ENV_FILE` 可以指向其他配置文件。已有的进程环境变量优先。模型名从 `ANTHROPIC_MODEL` 获取；API 地址优先 `ANTHROPIC_BASE_URL`，再考虑旧的 `ANTHROPIC_API_URL`。当前没有教程中的 `--resume`、`--yolo`、`--plan` 等参数；交互模式通过 `/permission` 查看和切换权限模式。
 
 ## TUI 不直接负责模型调用
 
@@ -54,6 +54,9 @@ React + Ink 的 `ReplApp` 订阅 `ReplController`：
 | `/chat 内容` | 显式发送聊天内容 |
 | `/clear` | 只清空当前显示区 |
 | `/compact` | 请求模型生成摘要，替换活动上下文 |
+| `/maxcontext [token数|off]` | 查看或设置自动压缩的估算 token 上限；默认 256K，详见 [第 7 章](07-context.md) |
+| `/permission [模式]` | 查看或切换权限模式；不发送给模型，详见 [第 6 章](06-permissions.md) |
+| 权限确认时 `y` / `n` / `Esc` | 同意 / 拒绝当前操作 |
 | 空输入时左箭头 | 打开会话列表 |
 | 列表中的上下键、回车、Esc | 选择、切换、返回 |
 | 忙碌时 `Ctrl+C` | 请求取消当前聊天的模型调用/重试等待 |
@@ -86,7 +89,7 @@ JSONL 是一行一个 JSON 对象。本项目第一行是会话头，后面逐�
 {"type":"turn_end"}
 ```
 
-事件类型还包括 `tool_state`、`title`、`compact`。`applyEvent()` 是唯一的状态应用逻辑：实时执行时调用它，重启读取 JSONL 时也依次调用它。相同事件序列应产生相同的 Agent 状态。
+事件类型还包括 `tool_state`、`title`、`microcompact`、`compact`。`applyEvent()` 是唯一的状态应用逻辑：实时执行时调用它，重启读取 JSONL 时也依次调用它。相同事件序列应产生相同的 Agent 状态。
 
 在 REPL 中，Agent 的 `record()` 先交给 `SessionStore.append()`，写成功后再应用到内存。这不是跨进程数据库事务，但比“先改内存、再尝试写盘”更容易保证失败时上下文不被悄悄替换。
 
@@ -101,6 +104,7 @@ JSONL 是一行一个 JSON 对象。本项目第一行是会话头，后面逐�
 | `usage` | 累加总用量；`purpose` 为 `chat` 时还累加本轮用量 |
 | `tool_state` | 用事件中的读取文件与激活工具快照更新状态 |
 | `title` | 设置会话列表显示的标题 |
+| `microcompact` | 校验检查点及位置，清理旧工具结果内容 |
 | `compact` | 校验检查点后替换活动 messages |
 | `turn_end` | 完成轮次加一 |
 

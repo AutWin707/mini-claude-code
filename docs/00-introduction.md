@@ -33,8 +33,8 @@ Agent 组织 system、messages 和 tools
 | 模型名 | `ANTHROPIC_MODEL` 必填，不内置默认模型 |
 | 终端界面 | React + Ink，外加不启动 TUI 的单次 prompt 模式 |
 | 会话 | REPL 用 UUID 命名的 JSONL，事件追加与重放 |
-| 上下文 | 工具结果截断、手动 `/compact`，没有自动多层压缩 |
-| 工具安全 | 有先读再改与 mtime 检查；没有强制审批或沙箱 |
+| 上下文 | 截断、空闲微清理、手动和可配置自动压缩；没有完整多层压缩 |
+| 工具安全 | 有先读再改、mtime 检查和简化权限审批；没有沙箱 |
 | 进阶能力 | 没有原教程的独立记忆、Skill、Plan Mode、多 Agent、MCP、自治系统 |
 
 “兼容 Anthropic Messages API”不等于“支持 OpenAI 格式”。服务地址可以替换，但本项目不会把请求自动转换成另一套 OpenAI 协议。

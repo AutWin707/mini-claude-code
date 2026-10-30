@@ -24,7 +24,10 @@ export type SessionEvent =
     | { type: "usage"; purpose: "chat" | "compact" | "title"; usage: TokenUsage }
     | { type: "tool_state"; readFiles: [string, number][]; activatedTools: string[] }
     | { type: "title"; title: string }
+    | { type: "microcompact"; through: number; targets: [number, number][] }
     | { type: "compact"; summary: string; through: number; messages: Anthropic.MessageParam[] };
+
+export const MICROCOMPACT_PLACEHOLDER = "[Old result cleared]";
 export interface SessionHeader {
     type: "session";
     version: 1;
@@ -54,6 +57,22 @@ export function applyEvent(state: AgentState, event: SessionEvent): void {
             break;
         case "tool_state": state.readFiles = event.readFiles; state.activatedTools = event.activatedTools; break;
         case "title": state.title = event.title; break;
+        case "microcompact": {
+            if (event.through !== state.messageCount) throw new Error("microcompact 检查点范围不匹配");
+            const blocks: Anthropic.ToolResultBlockParam[] = [];
+            const seen = new Set<string>();
+            for (const [messageIndex, blockIndex] of event.targets) {
+                const key = `${messageIndex}:${blockIndex}`;
+                const message = state.messages[messageIndex];
+                const block = message?.role === "user" && Array.isArray(message.content) ? message.content[blockIndex] : undefined;
+                if (seen.has(key) || block?.type !== "tool_result") throw new Error("microcompact 工具结果位置无效");
+                seen.add(key);
+                blocks.push(block);
+            }
+            // 全部验证通过后才修改，避免中途失败造成部分清理。
+            for (const block of blocks) block.content = MICROCOMPACT_PLACEHOLDER;
+            break;
+        }
         case "compact":
             if (event.through !== state.messageCount) throw new Error("compact 检查点范围不匹配");
             state.messages = event.messages;
@@ -101,6 +120,9 @@ function validateEvent(event: any): asserts event is SessionEvent {
         case "message": valid = validMessage(event.message); break;
         case "usage": valid = ["chat", "compact", "title"].includes(event.purpose) && validUsage(event.usage); break;
         case "title": valid = typeof event.title === "string" && !!event.title.trim(); break;
+        case "microcompact": valid = Number.isInteger(event.through) && event.through >= 0 &&
+            Array.isArray(event.targets) && event.targets.length > 0 && event.targets.every((target: unknown) =>
+                Array.isArray(target) && target.length === 2 && target.every(index => Number.isInteger(index) && index >= 0)); break;
         case "compact": valid = typeof event.summary === "string" && !!event.summary.trim() &&
             Number.isInteger(event.through) && event.through >= 0 && Array.isArray(event.messages) &&
             event.messages.length > 0 && event.messages.every(validMessage); break;

@@ -91,19 +91,21 @@ response.content = response.content.filter(block => block.type !== "thinking");
 
 当前白名单：`read_file`、`list_files`、`grep_search`、`web_fetch`。其他工具，包括 `write_file`、`edit_file`、`run_shell` 和 `tool_search`，不在流中提前执行。
 
-即使工具在白名单中，前面如果已经出现了非白名单工具，也不会提前启动后面的读取。原因是模型可能先要求写文件、再读同一个文件：如果读提前跑，就会看到写入前的旧状态。完整响应后仍按原顺序处理结果。
+即使工具在白名单中，也必须先通过权限检查；被拒绝或需要确认的调用不会提前执行，并阻止后续调用提前执行。前面如果已经出现了非白名单工具，也不会提前启动后面的读取。原因是模型可能先要求写文件、再读同一个文件：如果读提前跑，就会看到写入前的旧状态。完整响应后仍按原顺序处理结果。
 
 `read_file` 和 `grep_search` 的主要 I/O 使用异步接口，避免在模型流窗口里同步阻塞事件循环；`run_shell` 仍使用同步执行，但不会被提前启动。
 
 ### block 到达时到底做了什么
 
-SDK 通知 `contentBlock` 时，回调先区分工具和 thinking。如果是工具调用，代码检查白名单、取消信号和该 ID 是否已在 `pending` 中：
+SDK 通知 `contentBlock` 时，回调先区分工具和 thinking。如果是工具调用，代码检查白名单、权限、取消信号和该 ID 是否已在 `pending` 中：
 
 ```typescript
 // src/agent.ts，节选
 if (block.type === "tool_use") {
   if (!concurrentTools.has(block.name)) canStartEarly = false;
-  else if (canStartEarly && !toolSignal.aborted && !pending.has(block.id)) {
+  else if (checkPermission(block.name, block.input, this.permissionRules, this.permissionMode).action !== "allow") {
+    canStartEarly = false;
+  } else if (canStartEarly && !toolSignal.aborted && !pending.has(block.id)) {
     const readFiles = new Map<string, number>();
     pending.set(block.id, {
       name: block.name,

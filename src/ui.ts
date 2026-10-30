@@ -5,6 +5,7 @@ import { ReplController } from "./repl.ts";
 import type { LoadedSession } from "./session.ts";
 import { renderTranscript } from "./transcript.ts";
 import { formatUsage } from "./usage.ts";
+import type { PermissionMode } from "./permissions.ts";
 
 // 去掉标题和路径中的控制符，避免会话数据干扰终端显示。
 const safeText = (value: string) => stripVTControlCharacters(value).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
@@ -30,6 +31,11 @@ export function ReplApp({ controller, onClear = () => {} }: { controller: ReplCo
         if (key.ctrl && value === "c") {
             if (controller.getSnapshot().busy) controller.cancel();
             else exit();
+            return;
+        }
+        if (view.permission !== null) {
+            if (value.toLowerCase() === "y") controller.answerPermission(true);
+            else if (value.toLowerCase() === "n" || key.escape) controller.answerPermission(false);
             return;
         }
         if (view.busy || controller.getSnapshot().busy) return;
@@ -76,7 +82,7 @@ export function ReplApp({ controller, onClear = () => {} }: { controller: ReplCo
         }
     });
 
-    const height = Math.max(1, size.rows - 7);
+    const height = Math.max(1, size.rows - (view.permission !== null ? 8 : 7));
     const start = Math.max(0, selected - height + 1);
     const lines = renderTranscript(view.entries, size.columns).slice(-height);
     const body = sessions
@@ -86,21 +92,22 @@ export function ReplApp({ controller, onClear = () => {} }: { controller: ReplCo
         : lines.map((line, index) => h(Text, { key: index, wrap: "truncate" }, line || " "));
     return h(Box, { flexDirection: "column", width: size.columns },
         h(Text, { bold: true, wrap: "truncate" }, `Coding Agent Lab · ${safeText(view.title)} · ${view.id.slice(0, 8)}`),
-        h(Text, { dimColor: true, wrap: "truncate" }, `${safeText(view.model)} · ${safeText(view.cwd)}`),
+        h(Text, { dimColor: true, wrap: "truncate" }, `${safeText(view.model)} · 权限: ${view.permissionMode} · 上下文上限: ${view.maxContext ?? "关闭"} · ${safeText(view.cwd)}`),
         h(Box, { flexDirection: "column", height, overflow: "hidden" },
             ...body, sessions?.length === 0 ? h(Text, null, "暂无会话") : null),
         h(Text, { dimColor: true, wrap: "truncate" }, `本轮 token: ${formatUsage(view.lastTurnUsage)}`),
         h(Text, { dimColor: true, wrap: "truncate" }, `累计 token: ${formatUsage(view.totalUsage)}`),
-        h(Text, { color: view.busy ? "yellow" : undefined, wrap: "truncate" }, view.busy ? "处理中…" :
-            sessions ? "↑↓ 选择 · Enter 切换 · Esc 返回" : "← 空输入切换会话 · /chat · /clear · /compact · Ctrl+C 退出"),
-        h(Text, { wrap: "truncate-start" }, "❯ ", characters.slice(0, cursor).join(""),
-            h(Text, { inverse: !view.busy && !sessions }, characters[cursor] ?? " "), characters.slice(cursor + 1).join("")),
+        view.permission !== null ? h(Text, { color: "yellow", wrap: "wrap" }, `权限确认: ${safeText(view.permission)}`) : null,
+        h(Text, { color: view.busy ? "yellow" : undefined, wrap: "truncate" }, view.permission !== null ? "允许？y 同意 · n / Esc 拒绝 · Ctrl+C 取消" : view.busy ? "处理中…" :
+            sessions ? "↑↓ 选择 · Enter 切换 · Esc 返回" : "← 切换会话 · /chat · /clear · /compact · /permission · /maxcontext · Ctrl+C"),
+        view.permission === null ? h(Text, { wrap: "truncate-start" }, "❯ ", characters.slice(0, cursor).join(""),
+            h(Text, { inverse: !view.busy && !sessions }, characters[cursor] ?? " "), characters.slice(cursor + 1).join("")) : null,
     );
 }
 
 // 启动 Ink REPL，直到用户退出后清理终端状态。
-export async function startRepl(): Promise<void> {
-    const controller = new ReplController();
+export async function startRepl(permissionMode: PermissionMode = "default"): Promise<void> {
+    const controller = new ReplController({ permissionMode });
     const app = render(h(ReplApp, { controller, onClear: () => app.clear() }), { exitOnCtrlC: false });
     try { await app.waitUntilExit(); } finally { app.cleanup(); }
 }

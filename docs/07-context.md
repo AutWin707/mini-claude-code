@@ -1,10 +1,10 @@
-# 7. 上下文管理：截断与手动压缩
+# 7. 上下文管理：截断、微清理与手动压缩
 
 ## 本章目标
 
-弄清消息为什么会越来越长、本项目在哪两处减小上下文，以及 `/compact` 如何在不改写原始会话文件的前提下替换后续请求的活动消息。
+弄清消息为什么会越来越长、本项目如何截断单条结果、空闲后清理旧工具结果，以及手动和自动压缩如何在不改写原始会话文件的前提下替换后续请求的活动消息。
 
-主要源码：[src/tools.ts](../src/tools.ts) 的 `truncateResult()`、[src/agent.ts](../src/agent.ts) 的 `compact()`、[src/session.ts](../src/session.ts) 的 `compact` 事件和 `applyEvent()`。
+主要源码：[src/tools.ts](../src/tools.ts) 的 `truncateResult()`、[src/agent.ts](../src/agent.ts) 的 `microcompactAnthropic()` 和 `compact()`、[src/session.ts](../src/session.ts) 的清理事件与 `applyEvent()`。
 
 ## 消息数组为什么不断增长
 
@@ -18,7 +18,7 @@
 
 读取大型文件或输出大量测试日志时，单个工具结果就可能很大。即使单次结果不大，多轮累计也会让请求变慢、消耗 token，甚至超出服务限制。
 
-当前项目没有自动检测上下文窗口比例、没有自动压缩，也没有教程里的多层 budget/snip/microcompact 流水线。现有控制主要是两项：**单条工具结果截断**和用户手动触发的 **`/compact`**。
+当前项目有四项控制：**单条工具结果截断**、空闲后自动清理旧工具结果、手动 `/compact`，以及用户设置阈值后的**自动压缩**。尚未实现教程里的 Budget / Snip 等完整流水线，也没有自动探测模型上下文窗口。
 
 ## 第一道：截断单个工具结果
 
@@ -38,7 +38,48 @@ return result.slice(0, keepEach) +
 
 这个阈值是字符串长度，不是 token 数，不考虑不同语言的 token 化差异；也没有把完整结果保存到磁盘供模型继续读取。`web_fetch` 还会先在读取响应体时限制 1 MiB，这是另一层不同单位的限制。
 
-## 第二道：手动 `/compact`
+## 第二道：空闲后的 Microcompact
+
+Agent 在每次聊天模型请求前检查：如果距离上次**成功完成的聊天模型请求**至少 5 分钟，就收集活动消息中的全部 `tool_result`，保留最近 3 个，把更早结果的 `content` 替换为 `[Old result cleared]`。
+
+```text
+上次成功的聊天请求结束
+  → 不足 5 分钟：不清理
+  → 达到 5 分钟：
+      按消息顺序找 tool_result
+      保留最后 3 个
+      更早的 content → "[Old result cleared]"
+      不改变 tool_use、tool_use_id、is_error 或消息顺序
+```
+
+判断在请求前（包括重试前）执行；如果没有旧结果需要替换，就不产生清理事件。清理不调用模型，也不依赖 token 利用率。它只记录上次成功的**聊天流请求**时间；标题和手动 `/compact` 的辅助请求不会重置该时间。`lastApiCallTime` 只在 Agent 内存中，新建或恢复 Agent 时为 0，因此恢复后的首次请求不会根据旧会话的时间立即清理。
+
+这个时间条件借鉴教程对缓存冷却的启发，但本项目没有显式前缀缓存，5 分钟并不能证明服务端缓存已过期。清理也不是后台定时任务：需要下一次请求触发检查。
+
+### 清理怎样随会话恢复
+
+REPL 中 Agent 先追加 `microcompact` 事件，再更新内存。事件记录当前 `messageCount` 检查点和要清理的 `[消息下标, 内容块下标]`；重放时先验证检查点与所有位置，再统一替换内容。例如：
+
+```json
+{"type":"microcompact","through":5,"targets":[[2,0],[2,1]]}
+```
+
+落盘失败不会先改掉内存里的旧结果。单次 prompt 没有会话文件，只改变当前 Agent 内存。
+
+工具调用与结果的配对不变，但旧输出的细节在**活动上下文**中不可见，可能需要重新调用工具。原始 JSONL 的历史行仍保留清理前的结果（这些结果可能已被 50,000 字符限制截断），因此清理不是隐私删除；切换会话后显示也会根据清理后的活动消息重建。
+
+## 第三道：自动压缩
+
+自动压缩默认上限为 **256K token（262144）**。在 TUI 输入 `/maxcontext 10000` 可改成 10000；`/maxcontext off` 关闭，无参数只查看当前值和默认值。达到当前上限时，会在**下一轮用户输入加入后、调用主模型前**自动执行一次摘要。切换会话沿用当前设置，退出后恢复 256K。
+
+上下文估算分两种：
+
+- 上次聊天响应有完整 usage 时，以 `input_tokens + output_tokens + cache_read_input_tokens + cache_creation_input_tokens` 为锚点，再按新增或减少的 JSON 字节数按 4 字节约等于 1 token 估算。
+- 没有可用 usage 时，直接按当前 system、工具定义和消息的 JSON 字节数估算。
+
+这不是模型 tokenizer 的精确计数，也不保证不会超出服务商窗口。自动压缩只在用户轮次边界运行，保留最新用户输入，不会在 `tool_use` 与 `tool_result` 之间运行。压缩失败、取消或压缩后估算仍达到上限时，不替换原上下文，并保留已加入的最新用户消息。
+
+## 第四道：手动 `/compact`
 
 在 TUI 输入 `/compact` 后，`ReplController` 调用 `Agent.compact()`。它要求当前有消息并获得独占访问，然后把**整个当前 messages 数组**序列化为 JSON 字符串，作为一条 user 消息交给模型，请求生成摘要。
 
@@ -172,8 +213,9 @@ type CompactEvent = {
 | --- | --- |
 | 单个工具结果限制 | 50,000 字符单位，保留头尾 |
 | 大结果落盘再引用 | 没有 |
-| Budget / Snip / Microcompact | 没有 |
-| 自动阈值与自动 compact | 没有 |
+| Microcompact | 聊天请求空闲至少 5 分钟后，清理最近 3 个以外的旧工具结果 |
+| Budget / Snip | 没有 |
+| 自动 compact | `/maxcontext <token>` 设置估算上限后，在用户轮次边界触发；默认 256K |
 | 手动摘要 | `/compact`，摘要整个活动上下文 |
 | 保留原始会话 | 有，JSONL 追加 compact 事件 |
 | 前缀缓存断点 | 没有显式配置 |
@@ -181,7 +223,7 @@ type CompactEvent = {
 ## 动手复习
 
 ```bash
-node --test test/truncate-result.test.ts
+node --test test/microcompact.test.mjs test/autocompact.test.mjs test/truncate-result.test.ts
 # session.test.mjs 当前部分 mock 尚未适配流式接口，参见第 14 章
 ```
 

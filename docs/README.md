@@ -14,15 +14,17 @@
 | [03](03-system-prompt.md) | System Prompt 与项目指令 | 已实现 | `src/prompt.ts` |
 | [04](04-cli-session.md) | CLI、TUI 与会话 | 已实现 | `src/run.ts`、`src/repl.ts`、`src/session.ts`、`src/ui.ts` |
 | [05](05-streaming.md) | 流式输出、thinking 与提前执行 | 已实现一套 Anthropic 兼容接口 | `src/agent.ts`、`src/transcript.ts` |
-| [07](07-context.md) | 上下文管理 | 工具结果截断、手动 `/compact` | `src/agent.ts`、`src/session.ts` |
+| [06](06-permissions.md) | 权限规则、危险检测与确认 | 简化实现，不含 Plan Mode | `src/permissions.ts`、`src/agent.ts`、`src/repl.ts` |
+| [07](07-context.md) | 上下文管理 | 截断、微清理、手动和自动压缩 | `src/agent.ts`、`src/session.ts` |
 | [14](14-testing.md) | 自动化与手动测试 | 有测试；部分旧 mock 待适配流式接口 | `test/` |
 
-建议按 00 → 01 → 02 → 03 → 04 → 05 → 07 的顺序读，再用 [第 14 章](14-testing.md) 的测试和练习巩固。章节编号保留教程的顺序；权限审批、记忆、Skill、Plan Mode、多 Agent、MCP 和自治等尚未实现的功能暂不写对应章节。
+建议按 00 → 01 → 02 → 03 → 04 → 05 → 06 → 07 的顺序读，再用 [第 14 章](14-testing.md) 的测试和练习巩固。章节编号保留教程的顺序；记忆、Skill、Plan Mode、多 Agent、MCP 和自治等尚未实现的功能暂不写对应章节。
 
 ## 配套文件怎么读
 
 - `src/agent.ts` 是引擎：模型请求、消息循环、提前执行、重试和手动压缩。
 - `src/tools.ts` 是工具箱：定义工具、执行分发、文件状态和结果截断。
+- `src/permissions.ts` 加载规则并检查权限；用户确认由 Agent 和界面配合处理。
 - `src/prompt.ts` 管理静态提示、动态环境和项目指令。
 - `src/session.ts` 维护事件与 JSONL；`src/usage.ts` 维护 token 数量。
 - `src/repl.ts` 是交互控制器；`src/ui.ts` 是 Ink 界面；`src/transcript.ts` 与 `src/markdown.ts` 负责展示。
@@ -30,7 +32,7 @@
 
 ## 注意安全
 
-当前 `run_shell` 能直接执行命令，文件工具也能真实写文件。提示词里的“危险操作先询问”不是程序强制的权限检查。请在可信的临时目录里练习；会话 JSONL、工具输出和项目指令可能包含敏感内容，不要把 `.env` 或会话文件提交到仓库。
+权限检查不是沙箱，Shell 正则和前缀匹配无法覆盖所有危险情况，文件和网络工具也有真实副作用。请在可信的临时目录里练习；会话 JSONL、工具输出和项目指令可能包含敏感内容，不要把 `.env` 或会话文件提交到仓库。
 
 ---
 

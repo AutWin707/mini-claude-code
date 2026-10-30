@@ -1,9 +1,10 @@
 import { statSync } from "node:fs";
-import { Agent, type AgentOutput, type ModelClient } from "./agent.ts";
+import { Agent, DEFAULT_MAX_CONTEXT, type AgentOutput, type ModelClient } from "./agent.ts";
 import { loadProjectInstructions } from "./prompt.ts";
 import { modelConfigFromEnv, SessionStore, type LoadedSession, type ModelConfig } from "./session.ts";
 import { entriesFromMessages, preview, toolDetail, type TranscriptEntry } from "./transcript.ts";
 import type { TokenUsage } from "./usage.ts";
+import { isPermissionMode, permissionModes, type PermissionMode, type PermissionRules } from "./permissions.ts";
 
 export interface ReplView {
     id: string;
@@ -12,6 +13,9 @@ export interface ReplView {
     title: string;
     entries: TranscriptEntry[];
     busy: boolean;
+    permissionMode: PermissionMode;
+    maxContext: number | null;
+    permission: string | null;
     totalUsage: TokenUsage;
     lastTurnUsage: TokenUsage;
 }
@@ -25,13 +29,19 @@ export class ReplController {
     private entries: TranscriptEntry[] = [];
     private busy = false;
     private abortController?: AbortController;
+    private permissionMode: PermissionMode;
+    private maxContext: number | null = DEFAULT_MAX_CONTEXT;
+    private permissionRules?: PermissionRules;
+    private pendingPermission?: { message: string; finish: (approved: boolean) => void };
     private listeners = new Set<() => void>();
     private view!: ReplView;
 
     // 创建新会话和对应 Agent，并把 Agent 事件接到 JSONL 与界面输出。
-    constructor(options: { store?: SessionStore; config?: ModelConfig; client?: ModelClient } = {}) {
+    constructor(options: { store?: SessionStore; config?: ModelConfig; client?: ModelClient; permissionMode?: PermissionMode; permissionRules?: PermissionRules } = {}) {
         this.store = options.store ?? new SessionStore();
         this.client = options.client;
+        this.permissionMode = options.permissionMode ?? "default";
+        this.permissionRules = options.permissionRules;
         this.session = this.store.create(process.cwd(), options.config ?? modelConfigFromEnv(), loadProjectInstructions());
         this.agent = this.makeAgent(this.session);
         this.publish();
@@ -41,6 +51,9 @@ export class ReplController {
     private makeAgent(session: LoadedSession): Agent {
         return new Agent({ config: session.header.config, state: session.state,
             instructions: session.header.instructions, client: this.client,
+            permissionMode: this.permissionMode, maxContext: this.maxContext,
+            permissionCwd: session.header.cwd, permissionRules: this.permissionRules,
+            confirmPermission: (message, signal) => this.requestPermission(message, signal),
             onEvent: event => this.store.append(session.header.id, event),
             onOutput: output => { this.note(output); },
         });
@@ -51,6 +64,7 @@ export class ReplController {
         const state = this.agent.snapshot();
         this.view = { id: this.session.header.id, cwd: this.session.header.cwd, model: this.agent.config.model,
             title: state.title ?? "新会话", entries: [...this.entries], busy: this.busy,
+            permissionMode: this.permissionMode, maxContext: this.maxContext, permission: this.pendingPermission?.message ?? null,
             totalUsage: state.totalUsage, lastTurnUsage: state.lastTurnUsage };
         for (const listener of this.listeners) listener();
     }
@@ -71,6 +85,8 @@ export class ReplController {
             else if (output.text) this.entries.push({ type, text: output.text });
         } else if (output.type === "tool") {
             this.entries.push({ type: "tool", name: output.name, detail: toolDetail(output.input) });
+        } else if (output.type === "note") {
+            if (output.text.trim()) this.entries.push({ type: "note", text: output.text });
         } else if (output.text.trim()) {
             this.entries.push({ type: "result", text: preview(output.text), error: output.error });
         }
@@ -88,7 +104,28 @@ export class ReplController {
         if (this.busy) throw new Error("正在处理，请等待当前操作完成");
     }
 
-    // 取消当前聊天中的模型请求或重试等待。
+    // 等待 Ink 界面决策；取消时释放等待，避免聊天永远处于 busy 状态。
+    private requestPermission(message: string, signal?: AbortSignal): Promise<boolean> {
+        if (signal?.aborted) return Promise.resolve(false);
+        return new Promise(resolve => {
+            const finish = (approved: boolean) => {
+                signal?.removeEventListener("abort", abort);
+                this.pendingPermission = undefined;
+                this.publish();
+                resolve(approved);
+            };
+            const abort = () => finish(false);
+            this.pendingPermission = { message, finish };
+            signal?.addEventListener("abort", abort, { once: true });
+            this.publish();
+        });
+    }
+
+    answerPermission(approved: boolean): void {
+        this.pendingPermission?.finish(approved);
+    }
+
+    // 取消当前聊天中的模型请求、确认等待或重试等待。
     cancel(): void {
         this.abortController?.abort();
     }
@@ -123,15 +160,40 @@ export class ReplController {
         this.publish();
     }
 
-    // 处理输入：/clear 清屏，/compact 压缩上下文，/chat 和普通文本继续当前对话。
+    // 处理输入：/permission 切换权限，/maxcontext 设置上限，/clear 清屏，/compact 压缩上下文。
     async submit(input: string): Promise<void> {
         this.assertIdle();
         const text = input.trim();
         if (!text) return;
         if (text === "/clear") { this.clear(); return; }
+        if (/^\/maxcontext(?:\s|$)/.test(text)) {
+            const value = text.slice("/maxcontext".length).trim();
+            if (value) {
+                if (value !== "off" && (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0)) {
+                    throw new Error("用法: /maxcontext <正整数 token 数|off>");
+                }
+                const maxContext = value === "off" ? null : Number(value);
+                this.agent.setMaxContext(maxContext);
+                this.maxContext = maxContext;
+            }
+            this.entries.push({ type: "note", text: `自动压缩上限: ${this.maxContext === null ? "关闭" : `${this.maxContext} token（估算）`}；默认 ${DEFAULT_MAX_CONTEXT}` });
+            this.publish();
+            return;
+        }
+        if (/^\/permission(?:\s|$)/.test(text)) {
+            const mode = text.slice("/permission".length).trim();
+            if (mode) {
+                if (!isPermissionMode(mode)) throw new Error(`权限模式可选: ${permissionModes.join("、")}`);
+                this.agent.setPermissionMode(mode);
+                this.permissionMode = mode;
+            }
+            this.entries.push({ type: "note", text: `当前权限模式: ${this.permissionMode}；可选: ${permissionModes.join("、")}` });
+            this.publish();
+            return;
+        }
         let prompt = text;
         if (/^\/chat(?:\s|$)/.test(text)) prompt = text.slice(5).trim();
-        else if (text.startsWith("/") && text !== "/compact") throw new Error("支持 /chat <内容>、/clear、/compact");
+        else if (text.startsWith("/") && text !== "/compact") throw new Error("支持 /chat <内容>、/clear、/compact、/permission [模式]、/maxcontext [token数|off]");
         if (!prompt) throw new Error("用法: /chat <内容>");
         this.busy = true;
         if (text !== "/compact") this.entries.push({ type: "user", text: prompt });
