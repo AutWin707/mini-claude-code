@@ -49,11 +49,12 @@ export function buildStaticSystemPrompt(): string {
 ```typescript
 // src/prompt.ts，节选
 export function buildUserSystemPrompt(deferredNames: string[] = []): string {
-  return `${buildStaticSystemPrompt()}\n\n${buildDynamicSystemPrompt(deferredNames)}`;
+  return [buildStaticSystemPrompt(), buildDynamicSystemPrompt(deferredNames), buildMemoryPromptSection(), buildSkillsPromptSection()]
+    .filter(Boolean).join("\n\n");
 }
 ```
 
-`Agent.callAnthropicStream()` 每次模型请求前重新调用这个函数。工具被激活后，未激活列表可能变化；切换会话时工作目录也可能变化，动态部分因此要重新生成。
+`Agent.callModel()` 每次模型请求前重新调用这个函数。工具被激活后，未激活列表可能变化；切换会话时工作目录也可能变化，动态部分因此要重新生成。
 
 静态与动态分开有助于理解和维护，但目前代码没有给请求设置 Anthropic 的 `cache_control` 断点，不能仅凭“文本静态”就宣称项目已经实现前缀缓存。
 

@@ -4,7 +4,7 @@
 
 弄清消息为什么会越来越长、本项目如何截断单条结果、空闲后清理旧工具结果，以及手动和自动压缩如何在不改写原始会话文件的前提下替换后续请求的活动消息。
 
-主要源码：[src/tools.ts](../src/tools.ts) 的 `truncateResult()`、[src/agent.ts](../src/agent.ts) 的 `microcompactAnthropic()` 和 `compact()`、[src/session.ts](../src/session.ts) 的清理事件与 `applyEvent()`。
+主要源码：[src/tools.ts](../src/tools.ts) 的 `truncateResult()`、[src/agent.ts](../src/agent.ts) 的 `microcompact()`、`autoCompact()` 和 `compact()`、[src/session.ts](../src/session.ts) 的清理事件与 `applyEvent()`。
 
 ## 消息数组为什么不断增长
 
@@ -40,7 +40,7 @@ return result.slice(0, keepEach) +
 
 ## 第二道：空闲后的 Microcompact
 
-Agent 在每次聊天模型请求前检查：如果距离上次**成功完成的聊天模型请求**至少 5 分钟，就收集活动消息中的全部 `tool_result`，保留最近 3 个，把更早结果的 `content` 替换为 `[Old result cleared]`。
+Agent 在每轮用户输入加入后、以及每批工具结果记录后检查：如果距离上次**成功完成的聊天模型请求**至少 5 分钟，就收集活动消息中的全部 `tool_result`，保留最近 3 个，把更早结果的 `content` 替换为 `[Old result cleared]`。
 
 ```text
 上次成功的聊天请求结束
@@ -52,7 +52,7 @@ Agent 在每次聊天模型请求前检查：如果距离上次**成功完成的
       不改变 tool_use、tool_use_id、is_error 或消息顺序
 ```
 
-判断在请求前（包括重试前）执行；如果没有旧结果需要替换，就不产生清理事件。清理不调用模型，也不依赖 token 利用率。它只记录上次成功的**聊天流请求**时间；标题和手动 `/compact` 的辅助请求不会重置该时间。`lastApiCallTime` 只在 Agent 内存中，新建或恢复 Agent 时为 0，因此恢复后的首次请求不会根据旧会话的时间立即清理。
+第一次检查在自动压缩估算之前，所以估算看到的是清理后的上下文；工具结果后的检查覆盖了等待权限确认超过 5 分钟的情况。网络重试之间不检查。如果没有旧结果需要替换，就不产生清理事件。清理不调用模型，也不依赖 token 利用率。它只记录上次成功的**聊天流请求**时间；标题和手动 `/compact` 的辅助请求不会重置该时间。`lastApiCallTime` 只在 Agent 内存中，新建或恢复 Agent 时为 0，因此恢复后的首次请求不会根据旧会话的时间立即清理。
 
 这个时间条件借鉴教程对缓存冷却的启发，但本项目没有显式前缀缓存，5 分钟并不能证明服务端缓存已过期。清理也不是后台定时任务：需要下一次请求触发检查。
 

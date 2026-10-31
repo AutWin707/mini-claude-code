@@ -51,14 +51,25 @@ npm run check      # 上述三个步骤顺序执行
 | `test/thinking.test.mjs`、`test/thinking-ui.test.mjs` | thinking 参数、流式展示、历史过滤 |
 | `test/stream-tools.test.mjs` | 提前执行、去重、顺序屏障、取消、SDK SSE |
 | `test/permissions.test.mjs` | 规则和模式、会话确认、提前执行拦截、Ink、非交互模式 |
-| `test/agent.test.mjs`、`test/session.test.mjs` | Agent 与会话场景；部分旧 mock 待更新 |
-| `test/run.test.mjs` | CLI 子进程及模拟 API；部分旧响应待更新 |
+| `test/agent.test.mjs`、`test/session.test.mjs` | Agent 与会话场景：多轮状态、压缩、标题、切换、忙碌锁、中断修复 |
+| `test/run.test.mjs` | CLI 子进程及模拟 SSE API |
+| `test/memory-save.test.mjs`、`test/memory-prefetch.test.mjs` | 记忆保存、索引、项目隔离与异步召回 |
+| `test/cache-usage.test.mjs` | 缓存 token 计入用量与上下文锚点 |
+| `test/skills.test.ts` | 技能发现、覆盖、模板替换、`/命令` 与 `skill` 工具 |
 
-### 当前全量测试的已知问题
+### 共用测试工具
 
-目前部分旧测试仍把模型 mock 成 `messages.create()`，或让模拟 HTTP 服务返回普通 JSON；聊天代码已经改用 `messages.stream()` / SSE。全量测试因此存在 `this.client.messages.stream is not a function` 或 `request ended without sending any chunks` 等失败。
+`test/helpers.mjs` 不是测试文件（不匹配 `*.test.*`），提供各测试共用的工具：
 
-这意味着不能把 `npm run check` 写成“全部通过”。修改测试前应先确认是 mock 协议过时，还是新的实现真的破坏了语义；不能只改断言让失败消失。运行结果会随着代码变化而变化，以本机最新输出为准。
+| 工具 | 作用 |
+| --- | --- |
+| `mockClient(replies)` | 假模型客户端。`stream()` 和 `create()` **共用一个回复队列**，按真实调用顺序消费；回复可以是消息、`Error`，或 `({ params, options, emit }) => 消息` 的函数，用来精确控制流式事件和时序。`requests` / `streams` / `creates` 记录收到的请求 |
+| `message()`、`text()`、`toolUse()` | 构造模型回复；含 `tool_use` 时 `stop_reason` 自动为 `tool_use`，`usage: null` 模拟服务不返回用量 |
+| `makeAgent(client, options)` | 不读取真实权限配置的 Agent |
+| `useTempDir(t)` | 临时目录，同时把 cwd 和 **HOME** 指向它，测试结束恢复 |
+| `mockApiServer(t, respond)` | 本地假 API 服务，流式请求返回 SSE，供子进程测试使用 |
+
+共用一个队列的好处是：REPL 一轮聊天后会再发一次 `create()` 生成标题，测试按"流式回答 → 标题"的顺序写回复即可，不用分别维护两个队列。隔离 HOME 是因为记忆、技能和会话都存放在 `~/.mini-claude` 下，不隔离就会读写真实目录。
 
 ## 分组跑已有测试
 

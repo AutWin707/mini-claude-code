@@ -12,7 +12,7 @@
 
 ```typescript
 // src/agent.ts，核心思路
-const stream = this.client.messages.stream(this.createParams, { signal });
+const stream = this.client.messages.stream({ model, max_tokens, system, messages, tools }, { signal });
 stream.on("text", text => this.output({ type: "text", text }));
 const response = await stream.finalMessage();
 ```
@@ -39,21 +39,21 @@ renderTranscript() → Ink Text
 
 ## Thinking 参数从哪来
 
-构造 Agent 时，`resolveThinkingMode()` 的规则是：
+构造 Agent 时按以下规则确定 thinking 预算：
 
-1. 显式传 `AgentOptions.thinking: true` → `enabled`。
-2. 否则模型名以 `MiniMax-M3.1` 开头 → 内部标记为 `adaptive`。
-3. 其他模型 → `disabled`。
+1. 显式传 `AgentOptions.thinking: true` → 预算 4095。
+2. 否则模型名以 `MiniMax-M3.1` 开头 → 预算 10000。
+3. 其他模型 → 不开启。
 
 这只是当前程序的规则，不是对所有模型能力的自动发现。当前 TUI 没有 thinking 模式或深度选择菜单；程序使用者可以通过 `new Agent({ thinking: true })` 显式启用。
 
-| 内部模式 | `max_tokens` | 请求中的 `thinking` |
+| 情况 | `max_tokens` | 请求中的 `thinking` |
 | --- | --- | --- |
-| disabled | 4096 | 不设置 |
-| enabled | 4096 | `{ type: "enabled", budget_tokens: 4095 }` |
-| adaptive | 10001 | `{ type: "enabled", budget_tokens: 10000 }` |
+| 不开启 | 4096 | 不设置 |
+| 显式开启 | 4096 | `{ type: "enabled", budget_tokens: 4095 }` |
+| MiniMax-M3.1 默认 | 10001 | `{ type: "enabled", budget_tokens: 10000 }` |
 
-这里名字叫 `adaptive`，发给服务的仍是 `type: "enabled"` 加固定预算，**不是**原生 `type: "adaptive"` 请求。预算被设到非常接近输出上限，最坏情况下留给正文和工具调用的空间很小；不同模型对参数及上限的支持也可能不同。
+`max_tokens` 总是预算加 1。发给服务的都是 `type: "enabled"` 加固定预算，**不是**原生 `type: "adaptive"` 请求。预算被设到非常接近输出上限，最坏情况下留给正文和工具调用的空间很小；不同模型对参数及上限的支持也可能不同。
 
 ## Thinking 如何显示和过滤
 
