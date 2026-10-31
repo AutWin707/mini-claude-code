@@ -5,6 +5,7 @@ import { modelConfigFromEnv, SessionStore, type LoadedSession, type ModelConfig 
 import { entriesFromMessages, preview, toolDetail, type TranscriptEntry } from "./transcript.ts";
 import type { TokenUsage } from "./usage.ts";
 import { isPermissionMode, permissionModes, type PermissionMode, type PermissionRules } from "./permissions.ts";
+import { expandSkillCommand } from "./skills.ts";
 
 export interface ReplView {
     id: string;
@@ -192,12 +193,18 @@ export class ReplController {
             this.publish();
             return;
         }
+        // 内置命令优先；其余 /名字 按技能展开，界面只显示原始命令。
         let prompt = text;
-        if (/^\/chat(?:\s|$)/.test(text)) prompt = text.slice(5).trim();
-        else if (text.startsWith("/") && text !== "/compact") throw new Error("支持 /chat <内容>、/clear、/compact、/permission [模式]、/maxcontext [token数|off]");
+        let shown = text;
+        if (/^\/chat(?:\s|$)/.test(text)) prompt = shown = text.slice(5).trim();
+        else if (text.startsWith("/") && text !== "/compact") {
+            const skillPrompt = expandSkillCommand(text);
+            if (skillPrompt === null) throw new Error("支持 /chat <内容>、/clear、/compact、/permission [模式]、/maxcontext [token数|off]、/<技能名> [参数]");
+            prompt = skillPrompt;
+        }
         if (!prompt) throw new Error("用法: /chat <内容>");
         this.busy = true;
-        if (text !== "/compact") this.entries.push({ type: "user", text: prompt });
+        if (text !== "/compact") this.entries.push({ type: "user", text: shown });
         this.publish();
         try {
             if (text === "/compact") {
