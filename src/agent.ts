@@ -7,6 +7,7 @@ import { applyEvent, emptyState, MICROCOMPACT_PLACEHOLDER, modelConfigFromEnv, t
 import { readUsage } from "./usage.ts";
 import { toolDetail, toolLabel } from "./transcript.ts";
 import { checkPermission, isPermissionMode, loadPermissionRules, type PermissionMode, type PermissionRules } from "./permissions.ts";
+import { formatMemoriesForInjection, startMemoryPrefetch } from "./memory.ts";
 
 export interface ModelClient {
     messages: {
@@ -43,6 +44,7 @@ const concurrentTools = new Set(["read_file", "list_files", "grep_search", "web_
 const MICROCOMPACT_IDLE_MS = 5 * 60 * 1000;
 const MICROCOMPACT_KEEP_RECENT = 3;
 export const DEFAULT_MAX_CONTEXT = 256 * 1024;
+export const AUTO_COMPACT_RATIO = 0.8;
 type PendingTool = { name: string; input: string | undefined; result: Promise<string>; readFiles: Map<string, number> };
 
 export class Agent {
@@ -63,6 +65,8 @@ export class Agent {
     private contextAnchor?: { tokens: number; bytes: number };
     private lastApiCallTime = 0;
     private busy = false;
+    private alreadySurfacedMemories = new Set<string>();
+    private sessionMemoryBytes = 0;
 
     constructor(options: AgentOptions = {}) {
         this.config = options.config ?? modelConfigFromEnv();
@@ -140,10 +144,8 @@ export class Agent {
     private updateContextAnchor(response: Anthropic.Message): void {
         const usage = readUsage(response.usage);
         if (usage.input === null || usage.output === null) { this.contextAnchor = undefined; return; }
-        const raw = response.usage as unknown as Record<string, unknown>;
-        const extra = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-        this.contextAnchor = { tokens: usage.input + usage.output + extra(raw.cache_read_input_tokens) + extra(raw.cache_creation_input_tokens),
-            bytes: this.contextBytes(this.state.messages) };
+        // readUsage 的输入已包含缓存，避免上下文锚点重复计数。
+        this.contextAnchor = { tokens: usage.input + usage.output, bytes: this.contextBytes(this.state.messages) };
     }
 
     private async runTool(call: Anthropic.ToolUseBlock, readFiles: Map<string, number>, signal?: AbortSignal): Promise<string> {
@@ -302,16 +304,37 @@ export class Agent {
             this.record({ type: "turn_start" });
             const content = this.state.messageCount === 0 ? this.withInstructions(userMessage) : userMessage;
             this.record({ type: "message", message: { role: "user", content } });
+            // 用户输入后立即开始选择记忆，与主模型请求并行。
+            const prefetch = startMemoryPrefetch(userMessage, async (system, query, sideSignal) => {
+                const response = await this.client.messages.create({
+                    model: this.config.model, max_tokens: 256, temperature: 0, system,
+                    messages: [{ role: "user", content: query }],
+                }, { signal: sideSignal });
+                return response.content.filter(block => block.type === "text").map(block => block.text).join("");
+            }, this.alreadySurfacedMemories, this.sessionMemoryBytes, signal);
             if (this.maxContext !== null) {
                 signal?.throwIfAborted();
                 this.microcompactAnthropic();
-                if (this.estimateContextTokens() >= this.maxContext) {
-                    this.output({ type: "note", text: `上下文达到 ${this.maxContext} token 上限，正在自动压缩…` });
+                const threshold = Math.floor(this.maxContext * AUTO_COMPACT_RATIO);
+                if (this.estimateContextTokens() >= threshold) {
+                    this.output({ type: "note", text: `上下文达到上限的 ${AUTO_COMPACT_RATIO * 100}%，正在自动压缩…` });
                     await this.compactHistory(true, signal);
                     this.output({ type: "note", text: "上下文已自动压缩。" });
                 }
             }
             while (true) {
+                // 未完成就跳过；完成后只消费一次，并将记忆记入会话。
+                if (prefetch?.settled && !prefetch.consumed) {
+                    prefetch.consumed = true;
+                    const memories = await prefetch.promise;
+                    if (memories.length) {
+                        this.record({ type: "message", message: { role: "user", content: formatMemoriesForInjection(memories) } });
+                        for (const memory of memories) {
+                            this.alreadySurfacedMemories.add(memory.path);
+                            this.sessionMemoryBytes += Buffer.byteLength(memory.content);
+                        }
+                    }
+                }
                 const { response, pending } = await this.callAnthropicStream(signal);
                 signal?.throwIfAborted();
                 this.recordUsage(response, "chat");
@@ -387,7 +410,7 @@ export class Agent {
         if (JSON.stringify(messages).length >= JSON.stringify(current).length) {
             throw new Error("压缩摘要未缩短上下文，原上下文已保留");
         }
-        if (preserveLatestUser && this.maxContext !== null && this.estimateContextTokens(messages, false) >= this.maxContext) {
+        if (preserveLatestUser && this.maxContext !== null && this.estimateContextTokens(messages, false) >= Math.floor(this.maxContext * AUTO_COMPACT_RATIO)) {
             throw new Error("压缩后仍达到最大上下文，请提高上限或缩短当前输入；原上下文已保留");
         }
         this.record({ type: "compact", summary, through: this.state.messageCount, messages });

@@ -110,7 +110,9 @@ function validMessage(value: any): boolean {
 }
 // 检查 token 用量；null 表示不可用，负数和其他类型都无效。
 function validUsage(value: any): boolean {
-    return value && [value.input, value.output].every(n => n === null || (typeof n === "number" && Number.isFinite(n) && n >= 0));
+    const validCount = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= 0;
+    return value && [value.input, value.output].every(n => n === null || validCount(n)) &&
+        [value.cacheRead, value.cacheWrite].every(n => n === undefined || validCount(n));
 }
 // 按事件类型校验 JSONL 记录，防止损坏数据进入会话状态。
 function validateEvent(event: any): asserts event is SessionEvent {

@@ -29,6 +29,10 @@ npm start -- "看看这个项目的目录结构"
 
 在 TUI 输入 `/permission` 查看权限模式，输入 `/permission dontAsk` 等命令切换模式；需要确认的操作通过 `y` / `n` 回答。具体模式和限制见 [第 6 章](docs/06-permissions.md)。
 
+可以让模型记住长期偏好或项目决定。记忆按工作目录隔离，保存在 `~/.mini-claude/projects/<项目哈希>/memory/`；通过 `write_file` 或 `edit_file` 保存时会自动更新 `MEMORY.md` 索引，并遵循现有权限规则。直接在外部编辑或删除文件不会自动更新索引。异步召回不会等待，可能来不及用于当前回答。
+
+用量中的输入包含服务返回的缓存命中和缓存写入 token；如返回明细，界面会分别显示。历史记录中未保存的缓存明细无法补算，记忆召回使用的辅助模型调用目前也不计入用量。
+
 ## 代码地图
 
 ```text
@@ -37,6 +41,8 @@ src/
   tools.ts       工具定义、分发与执行
   permissions.ts 权限规则、模式与危险操作检测
   prompt.ts      静态/动态提示词、项目指令加载
+  memory.ts      记忆索引、保存说明与异步召回
+  frontmatter.ts 简单 Markdown 元数据解析
   run.ts         单次执行与交互式入口
   repl.ts        交互控制器与会话切换
   ui.ts          React + Ink 终端界面
@@ -57,6 +63,7 @@ docs/            按教程目录整理的实现与复习文档
 - 工具输出截断、空闲后的旧工具结果清理、手动和可配置自动压缩。
 - 延迟工具搜索与激活。
 - system prompt、运行环境、父目录项目指令、规则文件及 `@路径` 引用。
+- 按项目隔离的文件记忆、自动索引与异步语义召回。
 
 迁移时恢复了被注释的 system prompt，移除了写死的测试提问和完整响应调试输出，模型改为环境配置，并修正了文件工具使用 Windows 专用 `dirname` 的问题。
 
@@ -75,6 +82,6 @@ npm test          # 使用 mock，不需要 API key，也不访问真实模型
 
 ## 下一步
 
-React + Ink CLI、JSONL 会话与简化版权限审批已实现，`docs/04-cli-session-plan.md` 保留为早期方案记录。Plan Mode、记忆、技能、多 Agent、MCP 和自治等功能尚未实现；已有实现从 [复习目录](docs/README.md) 开始阅读。
+React + Ink CLI、JSONL 会话、简化版权限审批与文件记忆已实现，`docs/04-cli-session-plan.md` 保留为早期方案记录。Plan Mode、技能、多 Agent、MCP 和自治等功能尚未实现；已有实现从 [复习目录](docs/README.md) 开始阅读。
 
 保留原项目的 MIT 许可，见 `LICENSE`。

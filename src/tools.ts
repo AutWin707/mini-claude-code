@@ -5,6 +5,7 @@ import { readFile as readFileAsync } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { glob } from "glob";
+import { updateMemoryIndex } from "./memory.ts";
 
 const execFileAsync = promisify(execFile);
 const MAX_RESULT_CHARS = 50000;
@@ -200,6 +201,8 @@ export async function executeTool(toolUse: Anthropic.ToolUseBlock, readFileState
             const result = writeFile(input);
             if (!result.startsWith("Error")) {
                 try { readFileState.set(path, statSync(path).mtimeMs); } catch { readFileState.delete(path); }
+                try { updateMemoryIndex(path); }
+                catch (error: any) { return `${result}\nWarning: memory index update failed: ${error.message}`; }
             }
             return result;
         }
@@ -216,6 +219,8 @@ export async function executeTool(toolUse: Anthropic.ToolUseBlock, readFileState
             const result = editFile(input);
             if (!result.startsWith("Error")) {
                 try { readFileState.set(path, statSync(path).mtimeMs); } catch { readFileState.delete(path); }
+                try { updateMemoryIndex(path); }
+                catch (error: any) { return `${result}\nWarning: memory index update failed: ${error.message}`; }
             }
             return result;
         }
