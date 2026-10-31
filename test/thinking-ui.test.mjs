@@ -1,43 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
-import { Agent } from "../src/agent.ts";
 import { ReplController } from "../src/repl.ts";
 import { SessionStore } from "../src/session.ts";
 import { ReplApp } from "../src/ui.ts";
+import { emptyRules, makeAgent, message, mockClient, text, useTempDir } from "./helpers.mjs";
 
 const thinkingBlock = { type: "thinking", thinking: "First, consider the answer.", signature: "signature" };
 const textBlock = { type: "text", text: "The answer." };
-const response = content => ({
-  id: "test", type: "message", role: "assistant", model: "test", stop_reason: "end_turn",
-  content, usage: { input_tokens: 10, output_tokens: 2 },
-});
 
+// 兼容服务返回 thinking 的三种方式：增量事件、完整块事件、只在最终消息里。
 for (const variant of ["delta", "block", "final"]) {
-  test(`thinking display handles ${variant} without duplicate output or history`, async () => {
+  test(`thinking display handles ${variant} without duplicate output or history`, async t => {
+    useTempDir(t);
     const output = [];
     const events = [];
-    const listeners = {};
-    const client = { messages: { stream() {
-      return {
-        on(event, listener) { listeners[event] = listener; },
-        async finalMessage() {
-          if (variant === "delta") {
-            listeners.thinking("First, ");
-            listeners.thinking("consider the answer.");
-          }
-          if (variant !== "final") listeners.contentBlock(thinkingBlock);
-          listeners.text("The answer.");
-          return response([thinkingBlock, textBlock]);
-        },
-      };
-    } } };
-    const agent = new Agent({ config: { model: "test" }, client, instructions: "",
-      onOutput: entry => output.push(entry), onEvent: event => events.push(event) });
+    const mock = mockClient([({ emit }) => {
+      if (variant === "delta") {
+        emit("thinking", "First, ");
+        emit("thinking", "consider the answer.");
+      }
+      if (variant !== "final") emit("contentBlock", thinkingBlock);
+      emit("text", "The answer.");
+      return message([thinkingBlock, textBlock]);
+    }]);
+    const agent = makeAgent(mock.client, { onOutput: entry => output.push(entry), onEvent: event => events.push(event) });
     await agent.chat("hello");
     assert.equal(output.filter(entry => entry.type === "thinking").map(entry => entry.text).join(""), thinkingBlock.thinking);
     assert.equal(output.filter(entry => entry.type === "text").map(entry => entry.text).join(""), textBlock.text);
@@ -48,36 +38,26 @@ for (const variant of ["delta", "block", "final"]) {
 }
 
 test("TUI shows streaming thinking separately and does not persist it", async t => {
-  const dir = mkdtempSync(join(tmpdir(), "mini-thinking-ui-"));
+  const dir = useTempDir(t);
   const previousColor = process.env.FORCE_COLOR;
   process.env.FORCE_COLOR = "1";
   t.after(() => {
     if (previousColor === undefined) delete process.env.FORCE_COLOR;
     else process.env.FORCE_COLOR = previousColor;
-    rmSync(dir, { recursive: true, force: true });
   });
   const firstChunk = Promise.withResolvers();
   const finish = Promise.withResolvers();
-  const client = { messages: {
-    stream() {
-      const listeners = {};
-      return {
-        on(event, listener) { listeners[event] = listener; },
-        async finalMessage() {
-          listeners.thinking("First, ");
-          firstChunk.resolve();
-          await finish.promise;
-          listeners.thinking("consider the answer.");
-          listeners.contentBlock(thinkingBlock);
-          listeners.text("The answer.");
-          return response([thinkingBlock, textBlock]);
-        },
-      };
-    },
-    async create() { return response([{ type: "text", text: "Title" }]); },
-  } };
+  const mock = mockClient([async ({ emit }) => {
+    emit("thinking", "First, ");
+    firstChunk.resolve();
+    await finish.promise;
+    emit("thinking", "consider the answer.");
+    emit("contentBlock", thinkingBlock);
+    emit("text", "The answer.");
+    return message([thinkingBlock, textBlock]);
+  }, text("Title")]);
   const store = new SessionStore(join(dir, "sessions"));
-  const controller = new ReplController({ store, config: { model: "MiniMax-M3.1" }, client });
+  const controller = new ReplController({ store, config: { model: "MiniMax-M3.1" }, client: mock.client, permissionRules: emptyRules() });
   const app = render(createElement(ReplApp, { controller }));
   t.after(() => app.unmount());
   const pending = controller.submit("hello");
@@ -93,8 +73,8 @@ test("TUI shows streaming thinking separately and does not persist it", async t 
   const frame = app.lastFrame();
   assert.match(frame, /Coding Agent Lab/);
   assert.match(frame, /First, consider the answer\./);
-  assert.match(frame, /\u001b\[3m/);
-  assert.match(frame, /\u001b\[90m/);
+  assert.match(frame, /\u001b\[3m/); // 斜体
+  assert.match(frame, /\u001b\[90m/); // 灰色
   assert.match(frame, /The answer\./);
   assert.ok(!readFileSync(store.path(controller.getSnapshot().id), "utf8").includes(thinkingBlock.thinking));
 });
