@@ -1,37 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Agent } from "../src/agent.ts";
 import { SessionStore } from "../src/session.ts";
 import { ReplController } from "../src/repl.ts";
-import { readUsage, formatUsage } from "../src/usage.ts";
+import { formatUsage, readUsage } from "../src/usage.ts";
+import { emptyRules, makeAgent, message, mockClient, text, toolUse, useTempDir } from "./helpers.mjs";
 
 function fixture(t) {
-  const cwd = process.cwd();
-  const dir = mkdtempSync(join(tmpdir(), "mini-session-"));
-  process.chdir(dir);
-  t.after(() => { process.chdir(cwd); rmSync(dir, { recursive: true, force: true }); });
-  return { dir: process.cwd(), store: new SessionStore(join(dir, "sessions")) };
-}
-function reply(text, usage = { input_tokens: 10, output_tokens: 2 }) {
-  return { id: "test", type: "message", role: "assistant", model: "test", stop_reason: "end_turn",
-    content: [{ type: "text", text }], usage };
-}
-function mockClient(responses) {
-  const requests = [];
-  return { requests, client: { messages: { create: async request => {
-    requests.push(structuredClone(request));
-    const response = responses.shift();
-    if (response instanceof Error) throw response;
-    if (!response) throw new Error("unexpected request");
-    return response;
-  } } } };
+  const dir = useTempDir(t);
+  return { dir, store: new SessionStore(join(dir, "sessions")) };
 }
 function storedAgent(store, session, client) {
   return new Agent({ config: session.header.config, instructions: session.header.instructions, state: session.state,
-    client, onOutput: () => {}, onEvent: event => store.append(session.header.id, event) });
+    client, permissionRules: emptyRules(), onOutput() {}, onEvent: event => store.append(session.header.id, event) });
 }
 
 test("JSONL restores messages, usage and title without storing credentials", t => {
@@ -56,14 +39,13 @@ test("JSONL restores messages, usage and title without storing credentials", t =
 
 test("incomplete JSONL tails are ignored and repaired before appending", t => {
   const { dir, store } = fixture(t);
-  const session = store.create(dir, { model: "test" }, "");
-  const id = session.header.id;
+  const id = store.create(dir, { model: "test" }, "").header.id;
   appendFileSync(store.path(id), '{"type":"message","message":"半条');
   assert.deepEqual(store.load(id).state.messages, []);
   store.append(id, { type: "title", title: "repaired" });
   assert.equal(store.load(id).state.title, "repaired");
   assert.doesNotMatch(readFileSync(store.path(id), "utf8"), /半条/);
-  appendFileSync(store.path(id), 'broken-middle\n');
+  appendFileSync(store.path(id), "broken-middle\n");
   const before = readFileSync(store.path(id), "utf8");
   assert.throws(() => store.load(id), /损坏/);
   assert.throws(() => store.append(id, { type: "turn_start" }), /损坏/);
@@ -73,8 +55,8 @@ test("incomplete JSONL tails are ignored and repaired before appending", t => {
 
 test("clear only resets visible entries; chat continues with the same JSONL and context", async t => {
   const { store } = fixture(t);
-  const mock = mockClient([reply("answer-one"), reply("title-one"), reply("answer-two")]);
-  const controller = new ReplController({ store, config: { model: "test" }, client: mock.client });
+  const mock = mockClient([text("answer-one"), text("title-one"), text("answer-two")]);
+  const controller = new ReplController({ store, config: { model: "test" }, client: mock.client, permissionRules: emptyRules() });
   await controller.submit("/chat first-question");
   const before = controller.getSnapshot();
   assert.deepEqual(before.entries.map(entry => entry.type), ["user", "assistant"]);
@@ -86,7 +68,7 @@ test("clear only resets visible entries; chat continues with the same JSONL and 
   assert.equal(readFileSync(store.path(before.id), "utf8"), jsonl);
   await controller.submit("second-question");
   assert.equal(controller.getSnapshot().id, before.id);
-  assert.equal(mock.requests.length, 3); // 概略只生成一次
+  assert.deepEqual(mock.calls.map(call => call.kind), ["stream", "create", "stream"]); // 标题只生成一次。
   assert.equal(mock.requests[2].messages[0].content, "first-question");
   assert.equal(mock.requests[2].messages.at(-1).content, "second-question");
   assert.deepEqual(controller.getSnapshot().totalUsage, { input: 30, output: 6 });
@@ -96,7 +78,7 @@ test("clear only resets visible entries; chat continues with the same JSONL and 
 test("compact preserves original JSONL and restores the checkpoint on restart", async t => {
   const { dir, store } = fixture(t);
   const session = store.create(dir, { model: "test" }, "preserved instruction");
-  const mock = mockClient([reply("long answer ".repeat(200)), reply("short summary"), reply("continued")]);
+  const mock = mockClient([text("long answer ".repeat(200)), text("short summary"), text("continued")]);
   const agent = storedAgent(store, session, mock.client);
   await agent.chat("long request ".repeat(200));
   const original = readFileSync(store.path(session.header.id), "utf8");
@@ -109,21 +91,21 @@ test("compact preserves original JSONL and restores the checkpoint on restart", 
   assert.equal(after.messageCount, before.messageCount);
   assert.deepEqual(after.lastTurnUsage, before.lastTurnUsage);
   assert.deepEqual(after.totalUsage, { input: 20, output: 4 });
-  assert.ok(readFileSync(store.path(session.header.id), "utf8").startsWith(original));
+  assert.ok(readFileSync(store.path(session.header.id), "utf8").startsWith(original)); // 只追加，不改写原记录。
   const restored = storedAgent(store, store.load(session.header.id), mock.client);
   assert.deepEqual(restored.snapshot(), after);
   await restored.chat("next");
+  assert.equal(mock.requests[1].tools, undefined); // 压缩请求不带工具。
   assert.equal(mock.requests[2].messages.length, 2);
   assert.match(mock.requests[2].messages[0].content, /short summary/);
   assert.doesNotMatch(JSON.stringify(mock.requests[2].messages), /long answer/);
-  assert.equal(mock.requests[1].tools, undefined);
 });
 
 test("failed, truncated and non-shrinking compact responses preserve context", async t => {
   const { dir, store } = fixture(t);
   const session = store.create(dir, { model: "test" }, "");
-  const mock = mockClient([reply("answer ".repeat(200)), new Error("offline"),
-    { ...reply("partial"), stop_reason: "max_tokens" }, reply("huge".repeat(10000))]);
+  const mock = mockClient([text("answer ".repeat(200)), new Error("offline"),
+    text("partial", { stop_reason: "max_tokens" }), text("huge".repeat(10000))]);
   const agent = storedAgent(store, session, mock.client);
   await agent.chat("request");
   const before = agent.snapshot().messages;
@@ -132,13 +114,13 @@ test("failed, truncated and non-shrinking compact responses preserve context", a
     assert.deepEqual(agent.snapshot().messages, before);
   }
   assert.doesNotMatch(readFileSync(store.path(session.header.id), "utf8"), /"type":"compact"/);
-  assert.deepEqual(agent.snapshot().totalUsage, { input: 30, output: 6 });
+  assert.deepEqual(agent.snapshot().totalUsage, { input: 30, output: 6 }); // 失败请求不计用量。
 });
 
-test("compact persistence failure never replaces the in-memory context", async () => {
-  const mock = mockClient([reply("answer ".repeat(200)), reply("summary")]);
-  const agent = new Agent({ config: { model: "test" }, instructions: "", client: mock.client, onOutput: () => {},
-    onEvent: event => { if (event.type === "compact") throw new Error("disk full"); } });
+test("compact persistence failure never replaces the in-memory context", async t => {
+  useTempDir(t);
+  const mock = mockClient([text("answer ".repeat(200)), text("summary")]);
+  const agent = makeAgent(mock.client, { onEvent: event => { if (event.type === "compact") throw new Error("disk full"); } });
   await agent.chat("hello");
   const before = agent.snapshot().messages;
   await assert.rejects(agent.compact(), /disk full/);
@@ -148,50 +130,54 @@ test("compact persistence failure never replaces the in-memory context", async (
 test("title retries at most three times and persists a unique fallback only once", async t => {
   const { dir, store } = fixture(t);
   const session = store.create(dir, { model: "test" }, "");
-  const mock = mockClient([reply("answer"), reply(""), reply(""), reply(""), reply("")]);
+  const mock = mockClient([text("answer"), text(""), text(""), text(""), text("")]);
   const agent = storedAgent(store, session, mock.client);
   await agent.chat("hello");
   await agent.ensureTitle(session.header.id);
   await agent.ensureTitle(session.header.id);
-  assert.equal(mock.requests.length, 5);
+  assert.equal(mock.creates.length, 4);
   assert.equal(store.load(session.header.id).state.title, `会话 ${session.header.id}`);
   assert.deepEqual(agent.snapshot().totalUsage, { input: 50, output: 10 });
-  assert.deepEqual(agent.snapshot().lastTurnUsage, { input: 10, output: 2 });
+  assert.deepEqual(agent.snapshot().lastTurnUsage, { input: 10, output: 2 }); // 标题用量不计入本轮。
 });
 
 test("switching restores cwd, model, tool state and usage, with isolated deferred tools", async t => {
   const { dir, store } = fixture(t);
   const firstDir = join(dir, "first");
   const secondDir = join(dir, "second");
-  mkdirSync(firstDir); mkdirSync(secondDir);
+  mkdirSync(firstDir);
+  mkdirSync(secondDir);
   const file = join(firstDir, "hello.txt");
   writeFileSync(file, "hello");
   const first = store.create(firstDir, { model: "first-model" }, "");
   const second = store.create(secondDir, { model: "second-model" }, "");
-  const toolReply = { ...reply(""), content: [
-    { type: "tool_use", id: "search", name: "tool_search", input: { query: "example_tool" } },
-    { type: "tool_use", id: "read", name: "read_file", input: { file_path: file } },
-  ] };
-  const mock = mockClient([toolReply, reply("first done"), reply("first title"), reply("second done"), reply("second title"),
-    { ...reply(""), content: [{ type: "tool_use", id: "edit", name: "edit_file", input: { file_path: file, old_string: "hello", new_string: "hi" } }] },
-    reply("edited")]);
-  const controller = new ReplController({ store, config: { model: "initial" }, client: mock.client });
+  const mock = mockClient([
+    message([toolUse("search", "tool_search", { query: "example_tool" }), toolUse("read", "read_file", { file_path: file })]),
+    text("first done"), text("first title"),
+    text("second done"), text("second title"),
+    message([toolUse("edit", "edit_file", { file_path: file, old_string: "hello", new_string: "hi" })]),
+    text("edited"),
+  ]);
+  const controller = new ReplController({ store, config: { model: "initial" }, client: mock.client, permissionRules: emptyRules() });
   controller.switchSession(first.header.id);
   await controller.submit("first");
   assert.equal(store.load(first.header.id).state.activatedTools[0], "example_tool");
+
   controller.switchSession(second.header.id);
   assert.equal(process.cwd(), secondDir);
   assert.deepEqual(controller.getSnapshot().totalUsage, { input: 0, output: 0 });
   await controller.submit("second");
   assert.equal(mock.requests[3].model, "second-model");
   assert.ok(!mock.requests[3].tools.some(tool => tool.name === "example_tool"));
+
   controller.switchSession(first.header.id);
   assert.equal(process.cwd(), firstDir);
   assert.deepEqual(controller.getSnapshot().totalUsage, { input: 30, output: 6 });
   await controller.submit("edit the read file");
   assert.equal(mock.requests[5].model, "first-model");
   assert.ok(mock.requests[5].tools.some(tool => tool.name === "example_tool"));
-  assert.equal(readFileSync(file, "utf8"), "hi");
+  assert.equal(readFileSync(file, "utf8"), "hi"); // 恢复的读取状态允许编辑。
+
   const before = controller.getSnapshot();
   const missing = store.create(join(dir, "missing"), { model: "test" }, "");
   assert.throws(() => controller.switchSession(missing.header.id), /无法恢复会话工作目录/);
@@ -201,17 +187,16 @@ test("switching restores cwd, model, tool state and usage, with isolated deferre
 
 test("busy operations reject duplicate chat, switching, clear and compact", async t => {
   const { store } = fixture(t);
-  let resolve;
-  let calls = 0;
-  const client = { messages: { create: () => ++calls === 1 ? new Promise(r => { resolve = r; }) : Promise.resolve(reply("title")) } };
-  const controller = new ReplController({ store, config: { model: "test" }, client });
+  const answer = Promise.withResolvers();
+  const mock = mockClient([() => answer.promise, text("title")]);
+  const controller = new ReplController({ store, config: { model: "test" }, client: mock.client, permissionRules: emptyRules() });
   const pending = controller.submit("hello");
   assert.equal(controller.getSnapshot().busy, true);
   await assert.rejects(controller.submit("duplicate"), /正在处理/);
   await assert.rejects(controller.submit("/compact"), /正在处理/);
   assert.throws(() => controller.clear(), /正在处理/);
   assert.throws(() => controller.switchSession(controller.getSnapshot().id), /正在处理/);
-  resolve(reply("done"));
+  answer.resolve(text("done"));
   await pending;
   assert.equal(controller.getSnapshot().busy, false);
 });
@@ -222,9 +207,9 @@ test("interrupted tool calls receive error results without repeating side effect
   const session = store.create(dir, { model: "test" }, "");
   store.append(session.header.id, { type: "message", message: { role: "user", content: "hello" } });
   store.append(session.header.id, { type: "message", message: { role: "assistant", content: [
-    { type: "tool_use", id: "interrupted", name: "write_file", input: { file_path: file, content: "unsafe-repeat" } },
+    toolUse("interrupted", "write_file", { file_path: file, content: "unsafe-repeat" }),
   ] } });
-  const mock = mockClient([reply("done")]);
+  const mock = mockClient([text("done")]);
   const agent = storedAgent(store, store.load(session.header.id), mock.client);
   await agent.chat("continue carefully");
   assert.equal(existsSync(file), false);
@@ -233,17 +218,12 @@ test("interrupted tool calls receive error results without repeating side effect
   assert.equal(result.is_error, true);
 });
 
-test("missing usage stays unavailable instead of resetting the total to zero", async () => {
-  const mock = mockClient([reply("first"), reply("second", undefined)]);
-  delete mock.client.unused;
-  // reply 的默认参数产生 usage；显式删除，模拟不提供 usage 的兼容服务。
-  const client = { messages: { create: async request => {
-    const response = await mock.client.messages.create(request);
-    if (mock.requests.length === 2) delete response.usage;
-    return response;
-  } } };
-  const agent = new Agent({ config: { model: "test" }, instructions: "", client, onOutput: () => {} });
-  await agent.chat("one"); await agent.chat("two");
+test("missing usage stays unavailable instead of resetting the total to zero", async t => {
+  useTempDir(t);
+  const mock = mockClient([text("first"), text("second", { usage: null })]);
+  const agent = makeAgent(mock.client);
+  await agent.chat("one");
+  await agent.chat("two");
   assert.deepEqual(agent.snapshot().totalUsage, { input: null, output: null });
   assert.match(formatUsage(agent.snapshot().lastTurnUsage), /不可用/);
   assert.deepEqual(readUsage({ input_tokens: 10 }), { input: 10, output: null });

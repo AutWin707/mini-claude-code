@@ -16,10 +16,11 @@
 | [05](05-streaming.md) | 流式输出、thinking 与提前执行 | 已实现一套 Anthropic 兼容接口 | `src/agent.ts`、`src/transcript.ts` |
 | [06](06-permissions.md) | 权限规则、危险检测与确认 | 简化实现，不含 Plan Mode | `src/permissions.ts`、`src/agent.ts`、`src/repl.ts` |
 | [07](07-context.md) | 上下文管理 | 截断、微清理、手动和自动压缩 | `src/agent.ts`、`src/session.ts` |
+| [08](08-memory.md) | 记忆系统 | 文件记忆、自动索引与异步召回 | `src/memory.ts`、`src/agent.ts`、`src/tools.ts` |
 | [09](09-skills.md) | 技能系统 | 已实现 inline 调用，不含 fork | `src/skills.ts`、`src/tools.ts`、`src/repl.ts` |
-| [14](14-testing.md) | 自动化与手动测试 | 有测试；部分旧 mock 待适配流式接口 | `test/` |
+| [14](14-testing.md) | 自动化与手动测试 | 全部通过；共用假模型见 `test/helpers.mjs` | `test/` |
 
-建议按 00 → 01 → 02 → 03 → 04 → 05 → 06 → 07 → 09 的顺序读，再用 [第 14 章](14-testing.md) 的测试和练习巩固。章节编号保留教程的顺序；记忆已实现但暂无独立章节，Plan Mode、多 Agent、MCP 和自治等尚未实现的功能暂不写对应章节。
+建议按 00 → 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 的顺序读，再用 [第 14 章](14-testing.md) 的测试和练习巩固。章节编号保留教程的顺序；Plan Mode、多 Agent、MCP 和自治等尚未实现的功能暂不写对应章节。
 
 ## 配套文件怎么读
 

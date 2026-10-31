@@ -51,17 +51,20 @@ assistant: 文件内容是……
 repairInterruptedTools()
 record(turn_start)
 record(user message)
+prefetchMemories()，microcompact()，autoCompact()
 while true:
-    callAnthropicStream()
+    injectMemories()
+    callModel()
     record(usage)
     过滤 thinking，record(assistant message)
     找 tool_use
     没有 tool_use → record(turn_end)，返回
-    检查权限 → 执行/复用工具或返回拒绝，收集 tool_result
+    runToolCalls()：检查权限 → 执行/复用工具或返回拒绝，收集 tool_result
     record(user message containing all results)
+    microcompact()
 ```
 
-这是为了复习而省略细节的流程，不是可直接复制的完整实现。源码还要处理权限、取消、提前执行、截断、工具状态、错误和界面输出。权限流程见[第 6 章](06-permissions.md)。
+这是为了复习而省略细节的流程，不是可直接复制的完整实现。源码还要处理权限、取消、提前执行、截断、工具状态、错误和界面输出；工具处理拆在 `runToolCalls()`、`denyReason()` 和 `commitEarlyRead()` 中。权限流程见[第 6 章](06-permissions.md)。
 
 第一次用户消息还可能被 `withInstructions()` 包上一段 `<project-instructions>`。这些指令从当前项目和祖先目录读取，细节见[第 3 章](03-system-prompt.md)。
 
@@ -83,7 +86,7 @@ async chat(userMessage: string, signal?: AbortSignal): Promise<void> {
     this.record({ type: "message", message: { role: "user", content } });
 
     while (true) {
-      const { response, pending } = await this.callAnthropicStream(signal);
+      const { response, pending } = await this.callModel(signal);
       this.recordUsage(response, "chat");
       response.content = response.content.filter(block => block.type !== "thinking");
       this.record({ type: "message", message: { role: "assistant", content: response.content } });
@@ -94,8 +97,9 @@ async chat(userMessage: string, signal?: AbortSignal): Promise<void> {
         return;
       }
 
-      // 按顺序检查权限并处理 calls；允许时可复用 pending 中已经启动的安全工具。
-      // 收集 tool_result 后，再记录为一条 user 消息。
+      // runToolCalls 按顺序检查权限并处理 calls；允许时可复用 pending 中已经启动的安全工具。
+      const results = await this.runToolCalls(calls, pending, signal);
+      this.record({ type: "message", message: { role: "user", content: results } });
     }
   });
 }
@@ -127,16 +131,20 @@ async chat(userMessage: string, signal?: AbortSignal): Promise<void> {
 
 ## 模型请求需要什么
 
-每次调用前，`callAnthropicStream()` 会更新三项：
+`callModel()` 每次请求都重新组装参数：
 
 ```typescript
 // src/agent.ts，节选
-this.createParams.system = buildUserSystemPrompt(getDeferredToolNames(this.activatedTools));
-this.createParams.messages = this.state.messages;
-this.createParams.tools = getActiveToolDefinitions(this.activatedTools);
+const stream = this.client.messages.stream({
+    model: this.config.model, max_tokens: this.maxTokens,
+    system: buildUserSystemPrompt(getDeferredToolNames(this.activatedTools)),
+    messages: this.state.messages,
+    tools: getActiveToolDefinitions(this.activatedTools),
+    ...(this.thinking ? { thinking: this.thinking } : {}),
+}, { signal });
 ```
 
-为什么不只在构造函数里设置一次？因为工具搜索可能激活新工具，消息也在不断追加；下一次调用模型时，工具清单和 system 中的延迟工具说明必须跟着变化。
+只有 `maxTokens` 和 `thinking` 在构造时确定。为什么其余部分不在构造函数里设置一次？因为工具搜索可能激活新工具，消息也在不断追加；下一次调用模型时，工具清单和 system 中的延迟工具说明必须跟着变化。
 
 请求通过 `client.messages.stream()` 发送。`text` 事件用于实时展示，`finalMessage()` 提供完整响应，让后续逻辑处理所有 block。流式显示与最后保存消息是两件事：前者解决“什么时候看到”，后者决定“下一次请求带什么”。
 
