@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { glob } from "glob";
 import { updateMemoryIndex } from "./memory.ts";
+import { discoverSkills, resolveSkillPrompt } from "./skills.ts";
 
 const execFileAsync = promisify(execFile);
 const MAX_RESULT_CHARS = 50000;
@@ -121,6 +122,18 @@ export const toolDefinitions: ToolDefinition[] = [
         },
     },
     {
+        name: "skill",
+        description: "Load a skill's instructions by name. Available skills are listed in the system prompt.",
+        input_schema: {
+            type: "object",
+            properties: {
+                skill_name: { type: "string", description: "The skill name" },
+                args: { type: "string", description: "Arguments passed to the skill" },
+            },
+            required: ["skill_name"],
+        },
+    },
+    {
         name: "run_shell",
         description: "Execute a shell command and return its output. For tests, git, package installs, etc.",
         input_schema: {
@@ -232,6 +245,13 @@ export async function executeTool(toolUse: Anthropic.ToolUseBlock, readFileState
             if (!activated.has("example_tool")) return "Error: use tool_search before example_tool";
             const input = toolUse.input as { message: string };
             return typeof input?.message === "string" ? `Example: ${input.message}` : "Error: message is required";
+        }
+        case "skill": {
+            // 元工具：返回的是指令文本，模型在后续回合按它执行。
+            const input = toolUse.input as { skill_name: string; args?: string };
+            const skill = discoverSkills().find(s => s.name === input?.skill_name);
+            if (!skill) return `Error: unknown skill ${input?.skill_name}`;
+            return `[Skill "${skill.name}" activated]\n\n${resolveSkillPrompt(skill, input.args ?? "")}`;
         }
         case "run_shell": return runShell(toolUse.input as { command: string });
         default:
