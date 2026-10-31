@@ -29,7 +29,7 @@ npm start -- "看看这个项目的目录结构"
 
 在 TUI 输入 `/permission` 查看权限模式，输入 `/permission dontAsk` 等命令切换模式；需要确认的操作通过 `y` / `n` 回答。具体模式和限制见 [第 6 章](docs/06-permissions.md)。
 
-可以让模型记住长期偏好或项目决定。记忆按工作目录隔离，保存在 `~/.mini-claude/projects/<项目哈希>/memory/`；通过 `write_file` 或 `edit_file` 保存时会自动更新 `MEMORY.md` 索引，并遵循现有权限规则。直接在外部编辑或删除文件不会自动更新索引。异步召回不会等待，可能来不及用于当前回答。
+可以让模型记住长期偏好或项目决定。记忆按工作目录隔离，保存在 `~/.mini-claude/projects/<项目哈希>/memory/`；通过 `write_file` 或 `edit_file` 保存时会自动更新 `MEMORY.md` 索引，并遵循现有权限规则。直接在外部编辑或删除文件不会自动更新索引。异步召回不会等待，可能来不及用于当前回答。详见 [第 8 章](docs/08-memory.md)。
 
 可以把常用提示词保存为技能：在 `~/.mini-claude/skills/<名字>/SKILL.md`（用户级）或项目的 `.mini-claude/skills/<名字>/SKILL.md`（项目级，同名覆盖用户级）中编写，与正版 Claude Code 的 `.claude/skills` 分开。TUI 或单次模式输入 `/<名字> 参数` 直接调用，模型也会根据技能描述通过 `skill` 工具自动调用。暂不支持 fork 子 agent 执行，`allowed-tools` 也不生效。详见 [第 9 章](docs/09-skills.md)。
 
