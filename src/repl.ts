@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { Agent, DEFAULT_MAX_CONTEXT, type AgentOutput, type ModelClient } from "./agent.ts";
+import { Agent, AUTO_COMPACT_RATIO, DEFAULT_MAX_CONTEXT, type AgentOutput, type ModelClient } from "./agent.ts";
 import { loadProjectInstructions } from "./prompt.ts";
 import { modelConfigFromEnv, SessionStore, type LoadedSession, type ModelConfig } from "./session.ts";
 import { entriesFromMessages, preview, toolDetail, type TranscriptEntry } from "./transcript.ts";
@@ -176,7 +176,8 @@ export class ReplController {
                 this.agent.setMaxContext(maxContext);
                 this.maxContext = maxContext;
             }
-            this.entries.push({ type: "note", text: `自动压缩上限: ${this.maxContext === null ? "关闭" : `${this.maxContext} token（估算）`}；默认 ${DEFAULT_MAX_CONTEXT}` });
+            const threshold = this.maxContext === null ? null : Math.floor(this.maxContext * AUTO_COMPACT_RATIO);
+            this.entries.push({ type: "note", text: `上下文上限: ${this.maxContext === null ? "关闭" : `${this.maxContext} token，达到 ${threshold}（${AUTO_COMPACT_RATIO * 100}%）自动压缩`}；默认 ${DEFAULT_MAX_CONTEXT}` });
             this.publish();
             return;
         }

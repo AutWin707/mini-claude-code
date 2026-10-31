@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent, DEFAULT_MAX_CONTEXT } from "../src/agent.ts";
+import { Agent, AUTO_COMPACT_RATIO, DEFAULT_MAX_CONTEXT } from "../src/agent.ts";
 import { ReplController } from "../src/repl.ts";
 import { SessionStore } from "../src/session.ts";
 
@@ -79,7 +79,8 @@ test("auto compact uses last usage including cache, preserves the new user input
   assert.deepEqual(store.load(session.header.id).state, agent.snapshot());
   assert.equal(agent.snapshot().messageCount, 4);
   assert.deepEqual(output.filter(entry => entry.type === "note").map(entry => entry.text),
-    [`上下文达到 ${10000} token 上限，正在自动压缩…`, "上下文已自动压缩。"]);
+    [`上下文达到上限的 ${AUTO_COMPACT_RATIO * 100}%，正在自动压缩…`, "上下文已自动压缩。"]);
+  assert.equal(AUTO_COMPACT_RATIO, 0.8);
 });
 
 test("when usage is unavailable the size estimate triggers compaction", async () => {
@@ -95,11 +96,27 @@ test("when usage is unavailable the size estimate triggers compaction", async ()
   assert.equal(mock.streams[1].messages.at(-1).content, "continue");
 });
 
-test("auto compact defaults to 256K and can be switched off", async () => {
+test("auto compact defaults to 256K and triggers at 80 percent", async () => {
+  const below = mockClient([text("old"), text("next")]);
+  const idle = agentFor(below.client);
+  await idle.chat("old");
+  // 留出余量：新用户消息本身也会计入估算。
+  idle.contextAnchor = { tokens: Math.floor(DEFAULT_MAX_CONTEXT * AUTO_COMPACT_RATIO) - 100, bytes: idle.contextAnchor.bytes };
+  await idle.chat("next");
+  assert.equal(below.summaries.length, 0);
+  const atThreshold = mockClient([text("old"), text("done")], [text("summary")]);
+  const agent = agentFor(atThreshold.client);
+  // 历史需比摘要长，否则压缩会因未缩短上下文而被拒绝。
+  await agent.chat("old " + "x".repeat(2000));
+  agent.contextAnchor = { tokens: Math.floor(DEFAULT_MAX_CONTEXT * AUTO_COMPACT_RATIO), bytes: agent.contextAnchor.bytes };
+  await agent.chat("next");
+  assert.equal(atThreshold.summaries.length, 1);
+});
+
+test("auto compact can be switched off", async () => {
   const mock = mockClient([text("first", { input_tokens: 100000, output_tokens: 1 }), text("second"), text("third")]);
   const agent = agentFor(mock.client);
   assert.equal(agent.maxContext, DEFAULT_MAX_CONTEXT);
-  assert.equal(DEFAULT_MAX_CONTEXT, 262144);
   await agent.chat("one");
   await agent.chat("two");
   agent.setMaxContext(10000);
@@ -210,5 +227,12 @@ test("REPL /maxcontext validates and changes the runtime Agent setting across se
   assert.equal(controller.agent.maxContext, null);
   await controller.submit("/maxcontext");
   assert.match(controller.getSnapshot().entries.at(-1).text, new RegExp(`默认 ${DEFAULT_MAX_CONTEXT}`));
+  await controller.submit("/maxcontext 262144");
+  await controller.submit("/maxcontext");
+  assert.match(controller.getSnapshot().entries.at(-1).text, /达到 209715/);
+  await controller.submit("/maxcontext 10000");
+  await controller.submit("/maxcontext");
+  assert.match(controller.getSnapshot().entries.at(-1).text, /达到 8000/);
+
   assert.deepEqual(store.load(other.header.id).state.messages, []);
 });

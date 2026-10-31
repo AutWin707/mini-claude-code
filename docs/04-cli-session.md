@@ -54,7 +54,7 @@ React + Ink 的 `ReplApp` 订阅 `ReplController`：
 | `/chat 内容` | 显式发送聊天内容 |
 | `/clear` | 只清空当前显示区 |
 | `/compact` | 请求模型生成摘要，替换活动上下文 |
-| `/maxcontext [token数|off]` | 查看或设置自动压缩的估算 token 上限；默认 256K，详见 [第 7 章](07-context.md) |
+| `/maxcontext [token数|off]` | 查看或设置自动压缩上限；达到上限 80% 时触发，默认约 209,715 token，详见 [第 7 章](07-context.md) |
 | `/permission [模式]` | 查看或切换权限模式；不发送给模型，详见 [第 6 章](06-permissions.md) |
 | 权限确认时 `y` / `n` / `Esc` | 同意 / 拒绝当前操作 |
 | 空输入时左箭头 | 打开会话列表 |

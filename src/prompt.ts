@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { dirname, join, resolve } from "path";
 import * as os from "os";
+import { buildMemoryPromptSection } from "./memory.ts";
 
 const STATIC_PROMPT = `You are Coding Agent Lab, a coding assistant.
 Use the available tools to inspect and change files.
@@ -81,5 +82,5 @@ export function buildDynamicSystemPrompt(deferredNames: string[] = []): string {
 }
 
 export function buildUserSystemPrompt(deferredNames: string[] = []): string {
-    return `${buildStaticSystemPrompt()}\n\n${buildDynamicSystemPrompt(deferredNames)}`;
+    return `${buildStaticSystemPrompt()}\n\n${buildDynamicSystemPrompt(deferredNames)}\n\n${buildMemoryPromptSection()}`;
 }
